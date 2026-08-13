@@ -1,0 +1,130 @@
+services:
+  rtsp-simulator:
+    profiles: ["simulator"]
+    image: bluenviron/mediamtx:1.9.3
+    ports:
+      - "8554:8554"
+
+  sample-video:
+    profiles: ["simulator"]
+    image: jrottenberg/ffmpeg:6.1-ubuntu
+    command:
+      - -re
+      - -f
+      - lavfi
+      - -i
+      - testsrc=size=1280x720:rate=30
+      - -an
+      - -c:v
+      - libx264
+      - -preset
+      - ultrafast
+      - -tune
+      - zerolatency
+      - -f
+      - rtsp
+      - rtsp://rtsp-simulator:8554/camera-1
+    depends_on:
+      - rtsp-simulator
+    healthcheck:
+      test: ["CMD-SHELL", "ffprobe -v error -rtsp_transport tcp -timeout 3000000 -read_intervals %+1 rtsp://rtsp-simulator:8554/camera-1 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      start_period: 5s
+
+  frame-grabber:
+    build:
+      context: ./apps/vision-pipeline
+    command: ["python", "-m", "frame_grabber.service"]
+    environment:
+      OPENCV_FFMPEG_CAPTURE_OPTIONS: rtsp_transport;tcp
+      VIDEO_SOURCE_TYPE: ${VIDEO_SOURCE_TYPE:-rtsp}
+      VIDEO_SOURCE: ${VIDEO_SOURCE:-}
+      CAMERA_ID: ${CAMERA_ID:-camera-1}
+      FRAME_RATE: ${FRAME_RATE:-2}
+      FRAME_OUTPUT_URL: http://pre-processor:8080/frames
+    volumes:
+      - ./samples:/media:ro
+    depends_on:
+      pre-processor:
+        condition: service_started
+
+  pre-processor:
+    build:
+      context: ./apps/vision-pipeline
+    command: ["python", "-m", "pre_processor.service"]
+    environment:
+      PREPROCESS_TARGET_WIDTH: ${PREPROCESS_TARGET_WIDTH:-320}
+      PREPROCESS_TARGET_HEIGHT: ${PREPROCESS_TARGET_HEIGHT:-240}
+      PREPROCESS_BATCH_SIZE: ${PREPROCESS_BATCH_SIZE:-1}
+    expose:
+      - "8080"
+
+  foundry-local:
+    build:
+      context: ./docker/foundry-local
+    environment:
+      MODEL_BUNDLE_DIR: /models
+      FOUNDRY_EXECUTION_PROVIDER: ${FOUNDRY_EXECUTION_PROVIDER:-CUDAExecutionProvider}
+      FOUNDRY_RUNTIME_MODE: ${FOUNDRY_RUNTIME_MODE:-onnx}
+      FOUNDRY_PORT: 8000
+    volumes:
+      - ./models:/models:ro
+    expose:
+      - "8000"
+    ports:
+      - "${FOUNDRY_PORT:-8000}:8000"
+    gpus: all
+
+  inference-api:
+    build:
+      context: ./apps/vision-pipeline
+    command: ["python", "-m", "inference_api.service"]
+    environment:
+      FOUNDRY_URL: http://foundry-local:8000
+      INFERENCE_API_PORT: 8081
+    ports:
+      - "8081:8081"
+    depends_on:
+      - foundry-local
+      - pre-processor
+
+  event-rules:
+    build:
+      context: ./apps/vision-pipeline
+    command: ["python", "-m", "event_rules.service"]
+    environment:
+      EVENT_RULES_CONFIDENCE: ${EVENT_RULES_CONFIDENCE:-0.75}
+      EVENT_RULES_DWELL_TIME: ${EVENT_RULES_DWELL_TIME:-1.0}
+      EVENT_RULES_ALLOWED_ZONES: ${EVENT_RULES_ALLOWED_ZONES:-}
+      EVENT_RULES_PORT: 8082
+    ports:
+      - "8082:8082"
+    depends_on:
+      - inference-api
+
+  local-store:
+    build:
+      context: ./apps/vision-pipeline
+    command: ["sh", "-c", "umask 0002 && exec python -m local_store.service"]
+    user: "0:${LOCAL_STORE_GID:-1000}"
+    environment:
+      LOCAL_STORE_DIR: /data/detections
+      LOCAL_STORE_RETENTION_DAYS: ${LOCAL_STORE_RETENTION_DAYS:-7}
+      LOCAL_STORE_PORT: 8083
+    volumes:
+      - ./data/detections:/data/detections
+    ports:
+      - "8083:8083"
+    depends_on:
+      - event-rules
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+
+  dataflow-stub:
+    image: alpine:3.20
+    command: ["sh", "-c", "while true; do sleep 3600; done"]
+    depends_on:
+      - mosquitto
+      - event-rules

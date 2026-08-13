@@ -1,0 +1,31 @@
+{
+  "bundle_id": "tiger-vision-models",
+  "bundle_version": "0.1.0",
+  "description": "Model manifest for the Tiger vision pipeline",
+  "models": [
+    {
+      "id": "yolo",
+      "format": "onnx",
+      "precision": "fp32",
+      "path": "yolo/model.onnx",
+      "sha256": "a2af5e56f8952295fafac24cd0126f0312fa8715610ec2870ecc229ccf7d315a",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8m.pt"
+    },
+    {
+      "id": "florence-2",
+      "format": "onnx",
+      "precision": "fp16",
+      "path": "florence-2/model.onnx",
+      "sha256": "",
+      "source_url": ""
+    },
+    {
+      "id": "phi-4-multimodal",
+      "format": "onnx",
+      "precision": "int4",
+      "path": "phi-4-multimodal/model.onnx",
+      "sha256": "",
+      "source_url": ""
+    }
+  ]
+}

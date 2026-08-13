@@ -1,0 +1,1 @@
+"""Frame capture and sampling service."""

@@ -1,0 +1,22 @@
+[project]
+name = "tiger-vision-pipeline"
+version = "0.1.0"
+description = "Local computer vision pipeline services"
+requires-python = ">=3.11"
+dependencies = [
+  "opencv-python-headless>=4.10,<5",
+  "requests>=2.32,<3",
+  "fastapi>=0.116,<1",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8.3,<9",
+]
+
+[tool.setuptools]
+packages = ["frame_grabber", "pre_processor", "inference_api", "event_rules", "local_store"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
