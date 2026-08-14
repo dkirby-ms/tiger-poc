@@ -2,4 +2,6 @@
 **/*.egg-info/
 .venv/
 data/
+models/florence-2/
+models/phi-4-multimodal/
 .env

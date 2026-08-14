@@ -224,8 +224,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Inference API server")
     parser.add_argument(
         "--foundry-url",
-        default=os.getenv("FOUNDRY_URL", "http://foundry-local:8000"),
-        help="URL of the Foundry Local inference endpoint",
+        default=os.getenv("FOUNDRY_URL", "http://local-model-runtime:8000"),
+        help="URL of the local model runtime inference endpoint",
     )
     parser.add_argument(
         "--port",

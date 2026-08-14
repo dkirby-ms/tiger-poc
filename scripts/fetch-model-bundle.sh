@@ -107,17 +107,18 @@ fetch_florence2() {
       FLORENCE_HF_REPO="microsoft/Florence-2-base"
       FLORENCE_PATH="$BUNDLE_DIR/florence-2"
 
-      if [ -d "$FLORENCE_PATH" ] && find "$FLORENCE_PATH" -type f -print -quit | grep -q .; then
+      if [ -d "$FLORENCE_PATH" ] && find "$FLORENCE_PATH" -type f -size +1k -print -quit | grep -q .; then
         echo "  Florence-2 artifact already exists"
         return
       fi
-      if command -v huggingface-cli >/dev/null 2>&1; then
-        huggingface-cli download "$FLORENCE_HF_REPO" --local-dir "$FLORENCE_PATH"
+      if command -v hf >/dev/null 2>&1; then
+        hf download "$FLORENCE_HF_REPO" --local-dir "$FLORENCE_PATH" || return 1
+        find "$FLORENCE_PATH" -type f -size +1k -print -quit | grep -q . || return 1
         return
       fi
-      echo "  Install huggingface-cli, then run:"
+      echo "  Install the Hugging Face CLI, then run:"
       echo "  pip install -U huggingface_hub"
-      echo "  huggingface-cli download $FLORENCE_HF_REPO --local-dir $FLORENCE_PATH"
+      echo "  hf download $FLORENCE_HF_REPO --local-dir $FLORENCE_PATH"
       return 1
 }
 
@@ -139,17 +140,18 @@ fetch_phi4() {
       PHI4_HF_REPO="microsoft/Phi-4-multimodal-instruct-onnx"
       PHI4_PATH="$BUNDLE_DIR/phi-4-multimodal/gpu/gpu-int4-rtn-block-32"
 
-      if [ -d "$PHI4_PATH" ] && find "$PHI4_PATH" -type f -print -quit | grep -q .; then
+      if [ -d "$PHI4_PATH" ] && find "$PHI4_PATH" -type f -size +1k -print -quit | grep -q .; then
         echo "  Phi-4 artifact already exists"
         return
       fi
-      if command -v huggingface-cli >/dev/null 2>&1; then
-        huggingface-cli download "$PHI4_HF_REPO" --include 'gpu/*' --local-dir "$BUNDLE_DIR/phi-4-multimodal"
+      if command -v hf >/dev/null 2>&1; then
+        hf download "$PHI4_HF_REPO" --include 'gpu/*' --local-dir "$BUNDLE_DIR/phi-4-multimodal" || return 1
+        find "$PHI4_PATH" -type f -size +1k -print -quit | grep -q . || return 1
         return
       fi
-      echo "  Install huggingface-cli, then run:"
+      echo "  Install the Hugging Face CLI, then run:"
       echo "  pip install -U huggingface_hub"
-      echo "  huggingface-cli download $PHI4_HF_REPO --include 'gpu/*' --local-dir $BUNDLE_DIR/phi-4-multimodal"
+      echo "  hf download $PHI4_HF_REPO --include 'gpu/*' --local-dir $BUNDLE_DIR/phi-4-multimodal"
       return 1
 }
 
@@ -163,6 +165,27 @@ calculate_hash() {
     echo "$hash"
 }
 
+calculate_artifact_hash() {
+  python3 - "$1" <<'PY'
+import hashlib
+import sys
+from pathlib import Path
+
+artifact = Path(sys.argv[1])
+hasher = hashlib.sha256()
+if artifact.is_file():
+  hasher.update(artifact.read_bytes())
+elif artifact.is_dir():
+  for path in sorted(item for item in artifact.rglob("*") if item.is_file()):
+    relative_path = path.relative_to(artifact).as_posix().encode("utf-8")
+    file_digest = hashlib.sha256(path.read_bytes()).hexdigest().encode("ascii")
+    hasher.update(relative_path + b"\t" + file_digest + b"\n")
+else:
+  raise SystemExit(f"artifact does not exist: {artifact}")
+print(hasher.hexdigest())
+PY
+}
+
 update_bundle_json() {
     local bundle_json="$REPO_DIR/models/bundle.json"
     
@@ -173,20 +196,30 @@ update_bundle_json() {
     
     echo -e "${YELLOW}Updating bundle.json with model checksums...${NC}"
     
-    # Update YOLO hash
-    if [ -f "$BUNDLE_DIR/yolo/model.onnx" ]; then
-      local yolo_hash=$(sha256sum "$BUNDLE_DIR/yolo/model.onnx" | awk '{print $1}')
-        python3 -c "
+    python3 - "$bundle_json" "$BUNDLE_DIR" <<'PY'
+import hashlib
 import json
-with open('$bundle_json', 'r') as f:
-    data = json.load(f)
-for model in data.get('models', []):
-    if model['id'] == 'yolo':
-        model['sha256'] = '$yolo_hash'
-with open('$bundle_json', 'w') as f:
-    json.dump(data, f, indent=2)
-" 2>/dev/null || echo "    (Manual hash update recommended)"
-    fi
+import sys
+from pathlib import Path
+
+manifest_path = Path(sys.argv[1])
+bundle_dir = Path(sys.argv[2])
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+for model in manifest.get("models", []):
+    artifact = bundle_dir / model["path"]
+    if not artifact.exists():
+        continue
+    hasher = hashlib.sha256()
+    if artifact.is_file():
+        hasher.update(artifact.read_bytes())
+    else:
+        for path in sorted(item for item in artifact.rglob("*") if item.is_file()):
+            relative_path = path.relative_to(artifact).as_posix().encode("utf-8")
+            file_digest = hashlib.sha256(path.read_bytes()).hexdigest().encode("ascii")
+            hasher.update(relative_path + b"\t" + file_digest + b"\n")
+    model["sha256"] = hasher.hexdigest()
+manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+PY
     
     echo -e "${GREEN}✓ bundle.json updated${NC}"
 }
@@ -215,7 +248,7 @@ validate_models() {
         echo ""
         echo "Next steps:"
         echo "1. Update bundle.json with sha256 hashes (if not already done)"
-        echo "2. Verify models load in Foundry Local: docker-compose up foundry-local"
+        echo "2. Verify models load in the local model runtime: docker-compose up local-model-runtime"
         echo "3. Test pipeline: ./scripts/test-pipeline-e2e.sh"
     else
         echo -e "${YELLOW}Some models are missing. See instructions above.${NC}"
@@ -264,7 +297,7 @@ main() {
     fetch_phi4 || true
     echo ""
 
-    update_bundle_json || true
+    update_bundle_json
     validate_models
   fi
 
@@ -335,7 +368,7 @@ PY
       printf 'PRESENT: %s (digest pending)\n' "${relative_path}"
       continue
     fi
-    actual_digest="$(sha256sum "${artifact_path}" | awk '{print $1}')"
+    actual_digest="$(calculate_artifact_hash "${artifact_path}")"
     if [[ "${actual_digest}" != "${expected_digest}" ]]; then
       printf 'ERROR: digest mismatch for %s\n' "${relative_path}" >&2
       exit 1

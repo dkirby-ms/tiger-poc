@@ -104,17 +104,14 @@ GenAI rather than `onnxruntime.InferenceSession`.
 After obtaining the models, verify they're in place and correctly configured:
 
 ```bash
-# Run the model fetch script
-./scripts/fetch-model-bundle.sh
+# Download artifacts and update their deterministic SHA-256 digests
+PATH="$PWD/apps/vision-pipeline/.venv/bin:$PATH" ./scripts/fetch-model-bundle.sh --write-lock
 
-# Verify models load
-docker-compose up -d foundry-local
-curl http://localhost:8000/v1/models | python -m json.tool
+# Verify artifact digests and manifest lock
+PATH="$PWD/apps/vision-pipeline/.venv/bin:$PATH" ./scripts/fetch-model-bundle.sh --verify
 
-# Test inference
-curl -X POST http://localhost:8000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model": "yolo", "messages": [{"role": "user", "content": "Analyze this image"}], "image_base64": "<base64-jpeg>"}'
+# Build, start, probe, and clean up the local model runtime
+./scripts/verify-local-model-runtime.sh
 ```
 
 ## Model Bundle Structure

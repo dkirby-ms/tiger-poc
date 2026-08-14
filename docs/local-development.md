@@ -123,7 +123,7 @@ The Compose file describes the complete target pipeline, but only the Epic 2 vid
 | `pre-processor` | Yes | Receives JPEG frames and their metadata at `POST /frames`; this is the handoff boundary for the future resize, normalize, and batch service | Temporary receiver implemented; preprocessing is Epic 3 |
 | `rtsp-simulator` | Yes | Provides an RTSP server at `rtsp://rtsp-simulator:8554/camera-1` for repeatable local tests | Implemented with MediaMTX |
 | `sample-video` | Yes | Generates a synthetic test pattern with FFmpeg and publishes it to the RTSP simulator | Implemented for testing; it is not a real camera |
-| `foundry-local` | Yes | CUDA-configurable local runtime exposing `/healthz` and `/v1` | YOLO ONNX inference; model weights are fetched separately |
+| `local-model-runtime` | Yes | CUDA-configurable local runtime exposing `/healthz` and `/v1` | YOLO ONNX inference; model weights are fetched separately |
 | `inference-api` | Yes | Calls Foundry Local and normalizes inference responses | Implemented for frame requests |
 | `event-rules` | Yes | Future confidence, dwell-time, and zone-entry rules engine | Placeholder for Epic 5 |
 | `local-store` | Yes | Future local persistence for detections and clips | Placeholder for Epic 5 |
@@ -148,13 +148,13 @@ The simulator pair provides a repeatable camera-like source for local developmen
 
 ### Foundry Local Runtime
 
-The `foundry-local` service builds from `docker/foundry-local` and mounts the
+The `local-model-runtime` service builds from `apps/local-model-runtime` and mounts the
 versioned manifest and downloaded artifacts from `models/`. It exposes the
 OpenAI-compatible model and chat completion routes used by later pipeline
 services:
 
 ```bash
-FOUNDRY_RUNTIME_MODE=mock docker compose up --build foundry-local
+FOUNDRY_RUNTIME_MODE=mock docker compose up --build local-model-runtime
 curl http://localhost:8000/healthz
 curl http://localhost:8000/v1/models
 ```

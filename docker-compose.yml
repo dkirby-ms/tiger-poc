@@ -60,9 +60,9 @@ services:
     expose:
       - "8080"
 
-  foundry-local:
+  local-model-runtime:
     build:
-      context: ./docker/foundry-local
+      context: ./apps/local-model-runtime
     environment:
       MODEL_BUNDLE_DIR: /models
       FOUNDRY_EXECUTION_PROVIDER: ${FOUNDRY_EXECUTION_PROVIDER:-CUDAExecutionProvider}
@@ -81,12 +81,12 @@ services:
       context: ./apps/vision-pipeline
     command: ["python", "-m", "inference_api.service"]
     environment:
-      FOUNDRY_URL: http://foundry-local:8000
+      FOUNDRY_URL: http://local-model-runtime:8000
       INFERENCE_API_PORT: 8081
     ports:
       - "8081:8081"
     depends_on:
-      - foundry-local
+      - local-model-runtime
       - pre-processor
 
   event-rules:

@@ -11,7 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 
@@ -131,6 +132,14 @@ def create_app(store: LocalDetectionStore) -> FastAPI:
             "count": len(detections),
             "detections": detections,
         }
+
+    @app.get("/clips/{clip_name}")
+    def get_clip(clip_name: str) -> FileResponse:
+        """Serve a persisted clip file to browser clients."""
+        clip_path = store.clips_dir / clip_name
+        if not clip_path.exists() or clip_path.is_dir():
+            raise HTTPException(status_code=404, detail="Clip not found")
+        return FileResponse(path=clip_path, media_type="video/mp4")
     
     @app.post("/purge")
     def purge_expired() -> dict[str, Any]:

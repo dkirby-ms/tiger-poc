@@ -57,7 +57,7 @@ def test_given_frame_when_infer_then_forwards_image_and_normalizes_response(monk
     import inference_api.service as service
 
     monkeypatch.setattr(service.requests, "post", fake_post)
-    app = create_app("http://foundry-local:8000")
+    app = create_app("http://local-model-runtime:8000")
     infer_route = next(route.endpoint for route in app.routes if route.path == "/infer")
 
     response = infer_route(
@@ -68,7 +68,7 @@ def test_given_frame_when_infer_then_forwards_image_and_normalizes_response(monk
         )
     )
 
-    assert captured["url"] == "http://foundry-local:8000/v1/chat/completions"
+    assert captured["url"] == "http://local-model-runtime:8000/v1/chat/completions"
     assert captured["json"]["image_base64"] == "anBlZy1ieXRlcw=="
     assert response.detections[0]["label"] == "person"
     assert response.detections[0]["source_id"] == "camera-1"
