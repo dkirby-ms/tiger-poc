@@ -18,6 +18,15 @@ This backlog covers the work needed to stand up the local development environmen
 
 Work items are grouped into epics that follow the pipeline stages in the reference architecture. Each item lists a suggested size (S/M/L), dependencies, and acceptance criteria. Sizes are rough guidance, not commitments.
 
+## Progress Snapshot
+
+As of 2026-08-13, Epics 2 and 3 are implemented with unit coverage. Epic 4
+has a working CUDA-configurable runtime and a partial model bundle containing
+YOLO; Florence-2 and Phi-4-multimodal artifacts remain pending. Epic 5 has
+implemented inference normalization, event-rule filtering, and local storage
+services, including HTTP service boundaries, but the full pipeline still needs
+runtime integration validation. Epics 6.2 through 8 remain outstanding.
+
 ## Epic 1: Workstation and GPU Foundation
 
 Prerequisite environment setup so the RTX 5070 is usable by containers before any pipeline code is written.
@@ -77,6 +86,7 @@ Prerequisite environment setup so the RTX 5070 is usable by containers before an
 
 ### 3.1 Pre-processor service (resize, normalize, batch)
 
+* Status: ✅ Complete
 * Size: M
 * Dependencies: 2.2
 * Description: Implement the pre-processor that resizes, normalizes, and batches frames before they are sent to Foundry Local, matching the input contract expected by the ONNX models.
@@ -89,10 +99,10 @@ Prerequisite environment setup so the RTX 5070 is usable by containers before an
 
 ### 4.1 Provision ONNX model bundle (YOLO, Florence-2, Phi-4-multimodal)
 
-* Status: ⏳ In progress (manifest defined; model files and fetch script pending)
+* Status: ⏳ In progress (official sources and runtimes selected; YOLO artifact present; Florence-2 and Phi-4 downloads remain pending)
 * Size: M
 * Dependencies: 1.3
-* Description: Package the ONNX models used by the pipeline into an immutable, versioned bundle referenced by digest, matching the "Keeping Parity" guidance in the system design. Include a script to fetch/build the bundle locally.
+* Description: Package the approved model artifacts used by the pipeline into an immutable, versioned bundle referenced by digest, matching the "Keeping Parity" guidance in the system design. Include a script to fetch/build the bundle locally.
 * Acceptance criteria:
   * Bundle has a version identifier and content digest recorded alongside it.
   * A fetch/build script reproduces the same bundle deterministically.
@@ -100,7 +110,7 @@ Prerequisite environment setup so the RTX 5070 is usable by containers before an
 
 ### 4.2 Foundry Local container with CUDA/TensorRT execution provider
 
-* Status: ⏳ In progress (container scaffolded; inference logic not implemented)
+* Status: ⏳ In progress (CUDA ONNX Runtime container, YOLO path, Phi-4 ORT GenAI adapter, and smoke-test contract are implemented; model downloads and Florence runtime adapter remain pending)
 * Size: L
 * Dependencies: 1.2, 4.1
 * Description: Stand up the Foundry Local runtime container configured to use the CUDA 12.8 execution provider (TensorRT 10.9 optional) targeting `sm_120`, exposing the OpenAI-compatible `/v1` endpoint documented in the architecture.
@@ -111,7 +121,7 @@ Prerequisite environment setup so the RTX 5070 is usable by containers before an
 
 ### 4.3 VRAM budget validation across concurrent models
 
-* Status: ❌ Not started
+* Status: ⏳ In progress (VRAM assumptions and INT4 fallback are documented; target-GPU measurement remains pending)
 * Size: S
 * Dependencies: 4.2
 * Description: Validate that YOLO and Florence-2 run concurrently within the 12 GB VRAM budget, and document the fallback (quantized weights or sequential loading) required when Phi-4-multimodal is added.
@@ -123,6 +133,7 @@ Prerequisite environment setup so the RTX 5070 is usable by containers before an
 
 ### 5.1 Inference API service
 
+* Status: ✅ Complete (HTTP service, frame-to-Foundry path, response normalization, and integration coverage implemented)
 * Size: M
 * Dependencies: 4.2
 * Description: Build the Inference API service that calls the Foundry Local `/v1` endpoint on behalf of the pre-processor and normalizes responses into an internal detection schema.
@@ -132,6 +143,7 @@ Prerequisite environment setup so the RTX 5070 is usable by containers before an
 
 ### 5.2 Event rules engine
 
+* Status: ✅ Complete (unit/API implementation; pipeline publication remains in Epic 6)
 * Size: M
 * Dependencies: 5.1
 * Description: Implement event rules (confidence thresholds, dwell time, zone entry) that filter and enrich raw detections before they are persisted or published.
@@ -141,6 +153,7 @@ Prerequisite environment setup so the RTX 5070 is usable by containers before an
 
 ### 5.3 Local storage for detections and clips
 
+* Status: ✅ Complete (filesystem service and HTTP persistence boundary implemented)
 * Size: S
 * Dependencies: 5.2
 * Description: Add local storage (filesystem or lightweight database) for detections and short clips, mirroring the edge's Storage Spaces Direct-backed local store at a scale appropriate for a workstation.
@@ -152,6 +165,7 @@ Prerequisite environment setup so the RTX 5070 is usable by containers before an
 
 ### 6.1 Mosquitto MQTT broker container
 
+* Status: ⏳ In progress (broker declared in Compose; topic configuration and connectivity test pending)
 * Size: S
 * Dependencies: 1.3
 * Description: Add a Mosquitto container to `docker-compose.yml` as the local stand-in for the Azure IoT Operations broker, with the same topic hierarchy convention (`cv/{site}/{camera}/detections`).
@@ -181,6 +195,7 @@ Prerequisite environment setup so the RTX 5070 is usable by containers before an
 
 ### 7.1 Docker Compose path for full pipeline
 
+* Status: ⏳ In progress (services are wired with default simulator input; end-to-end detection and publication validation pending)
 * Size: M
 * Dependencies: 2.2, 3.1, 4.2, 5.1, 5.2, 6.1
 * Description: Wire all services (frame grabber, pre-processor, Foundry Local, inference API, event rules, Mosquitto, dataflow stub) into a single `docker-compose.yml` that runs the full pipeline end to end with `docker-compose up`.

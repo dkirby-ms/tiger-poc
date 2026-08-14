@@ -13,19 +13,23 @@
     },
     {
       "id": "florence-2",
-      "format": "onnx",
+      "format": "transformers",
       "precision": "fp16",
-      "path": "florence-2/model.onnx",
+      "path": "florence-2",
       "sha256": "",
-      "source_url": ""
+      "source_url": "https://huggingface.co/microsoft/Florence-2-base",
+      "license": "MIT",
+      "runtime": "transformers"
     },
     {
       "id": "phi-4-multimodal",
-      "format": "onnx",
+      "format": "onnx-genai",
       "precision": "int4",
-      "path": "phi-4-multimodal/model.onnx",
+      "path": "phi-4-multimodal/gpu/gpu-int4-rtn-block-32",
       "sha256": "",
-      "source_url": ""
+      "source_url": "https://huggingface.co/microsoft/Phi-4-multimodal-instruct-onnx",
+      "license": "MIT",
+      "runtime": "onnxruntime-genai-cuda"
     }
   ]
 }

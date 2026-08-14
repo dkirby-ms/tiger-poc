@@ -83,7 +83,11 @@ class PipelineFrameRequest(BaseModel):
     source_id: str | None = None
 
 
-def _call_foundry_local(model_id: str, foundry_url: str) -> list[dict[str, Any]]:
+def _call_foundry_local(
+    model_id: str,
+    foundry_url: str,
+    frame_jpeg: bytes | None = None,
+) -> list[dict[str, Any]]:
     """Call the Foundry Local inference endpoint and parse results."""
     try:
         response = requests.post(
@@ -91,6 +95,11 @@ def _call_foundry_local(model_id: str, foundry_url: str) -> list[dict[str, Any]]
             json={
                 "model": model_id,
                 "messages": [{"role": "user", "content": "Analyze this image"}],
+                "image_base64": (
+                    base64.b64encode(frame_jpeg).decode("ascii")
+                    if frame_jpeg is not None
+                    else None
+                ),
             },
             timeout=30,
         )
@@ -129,7 +138,7 @@ def create_app(
     def infer(request: FrameInferenceRequest) -> InferenceResponse:
         """Run inference on a frame using the specified model."""
         # Get raw detections from Foundry Local
-        raw_detections = _call_foundry_local(request.model_id, foundry_url)
+        raw_detections = _call_foundry_local(request.model_id, foundry_url, request.frame_jpeg)
         
         # Normalize to Detection schema
         normalized: list[dict[str, Any]] = []
@@ -156,7 +165,11 @@ def create_app(
 
         try:
             base64.b64decode(request.clip_base64, validate=True)
-            detections = _call_foundry_local(request.model_id, foundry_url)
+            detections = _call_foundry_local(
+                request.model_id,
+                foundry_url,
+                base64.b64decode(request.frame_jpeg, validate=True),
+            )
             normalized = [
                 Detection.from_payload(
                     detection,

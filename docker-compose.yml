@@ -1,12 +1,10 @@
 services:
   rtsp-simulator:
-    profiles: ["simulator"]
     image: bluenviron/mediamtx:1.9.3
     ports:
       - "8554:8554"
 
   sample-video:
-    profiles: ["simulator"]
     image: jrottenberg/ffmpeg:6.1-ubuntu
     command:
       - -re
@@ -39,7 +37,7 @@ services:
     environment:
       OPENCV_FFMPEG_CAPTURE_OPTIONS: rtsp_transport;tcp
       VIDEO_SOURCE_TYPE: ${VIDEO_SOURCE_TYPE:-rtsp}
-      VIDEO_SOURCE: ${VIDEO_SOURCE:-}
+      VIDEO_SOURCE: ${VIDEO_SOURCE:-rtsp://rtsp-simulator:8554/camera-1}
       CAMERA_ID: ${CAMERA_ID:-camera-1}
       FRAME_RATE: ${FRAME_RATE:-2}
       FRAME_OUTPUT_URL: http://pre-processor:8080/frames
@@ -48,6 +46,8 @@ services:
     depends_on:
       pre-processor:
         condition: service_started
+      sample-video:
+        condition: service_healthy
 
   pre-processor:
     build:

@@ -25,6 +25,8 @@ MODEL_BUNDLE_DIR="${MODEL_BUNDLE_DIR:-${REPO_DIR}/models}"
 OUTPUT_DIR="${OUTPUT_DIR:-${MODEL_BUNDLE_DIR}}"
 BUNDLE_DIR="${BUNDLE_DIR:-${OUTPUT_DIR}}"
 QUANTIZE_MODELS="${QUANTIZE_MODELS:-}"
+MANIFEST_PATH="${BUNDLE_DIR}/bundle.json"
+LOCK_PATH="${BUNDLE_DIR}/bundle.lock"
 
 # Colors for output
 RED='\033[0;31m'
@@ -102,24 +104,21 @@ fetch_florence2() {
     # 2. Install dependencies: pip install -r requirements.txt
     # 3. Export to ONNX: python -m florence.export --model-id microsoft/Florence-2-base
     
-    FLORENCE_HF_REPO="microsoft/Florence-2-base"
-    FLORENCE_PATH="$BUNDLE_DIR/florence-2/model.onnx"
-    
-    if [ -f "$FLORENCE_PATH" ]; then
-        echo -e "${GREEN}  ✓ Florence-2 model already exists${NC}"
-        calculate_hash "$FLORENCE_PATH"
+      FLORENCE_HF_REPO="microsoft/Florence-2-base"
+      FLORENCE_PATH="$BUNDLE_DIR/florence-2"
+
+      if [ -d "$FLORENCE_PATH" ] && find "$FLORENCE_PATH" -type f -print -quit | grep -q .; then
+        echo "  Florence-2 artifact already exists"
         return
-    fi
-    
-    echo -e "${YELLOW}  ⓘ Manual setup required for Florence-2${NC}"
-    echo "    1. Clone Florence repo: git clone https://github.com/microsoft/Florence"
-    echo "    2. Install: pip install torch transformers pillow peft timm einops"
-    echo "    3. Export ONNX from $FLORENCE_HF_REPO"
-    echo "    4. Copy to: $FLORENCE_PATH"
-    echo ""
-    echo "    Alternative: Use HuggingFace model directly (requires transformers library)"
-    echo "    HF Model Card: https://huggingface.co/$FLORENCE_HF_REPO"
-    return 1
+      fi
+      if command -v huggingface-cli >/dev/null 2>&1; then
+        huggingface-cli download "$FLORENCE_HF_REPO" --local-dir "$FLORENCE_PATH"
+        return
+      fi
+      echo "  Install huggingface-cli, then run:"
+      echo "  pip install -U huggingface_hub"
+      echo "  huggingface-cli download $FLORENCE_HF_REPO --local-dir $FLORENCE_PATH"
+      return 1
 }
 
 # ==============================================================================
@@ -137,27 +136,21 @@ fetch_phi4() {
     # - Use INT4 quantization (recommended for this scenario)
     # - Consider sequential model loading with YOLO+Florence-2
     
-    PHI4_HF_REPO="microsoft/Phi-4-multimodal-instruct"
-    PHI4_PATH="$BUNDLE_DIR/phi-4-multimodal/model.onnx"
-    
-    if [ -f "$PHI4_PATH" ]; then
-        echo -e "${GREEN}  ✓ Phi-4-Multimodal model already exists${NC}"
-        calculate_hash "$PHI4_PATH"
+      PHI4_HF_REPO="microsoft/Phi-4-multimodal-instruct-onnx"
+      PHI4_PATH="$BUNDLE_DIR/phi-4-multimodal/gpu/gpu-int4-rtn-block-32"
+
+      if [ -d "$PHI4_PATH" ] && find "$PHI4_PATH" -type f -print -quit | grep -q .; then
+        echo "  Phi-4 artifact already exists"
         return
-    fi
-    
-    echo -e "${YELLOW}  ⓘ Manual setup required for Phi-4-Multimodal${NC}"
-    echo "    1. Download from HuggingFace: $PHI4_HF_REPO"
-    echo "    2. Quantize to INT4 (recommended for RTX 5070 12GB VRAM)"
-    echo "    3. Export to ONNX format"
-    echo "    4. Copy to: $PHI4_PATH"
-    echo ""
-    echo "    Quantization example using bitsandbytes:"
-    echo "    pip install bitsandbytes"
-    echo "    python -c \"from transformers import AutoModelForCausalLM; m = AutoModelForCausalLM.from_pretrained('$PHI4_HF_REPO', load_in_4bit=True); m.save_pretrained('./phi4-int4')\""
-    echo ""
-    echo "    HF Model Card: https://huggingface.co/$PHI4_HF_REPO"
-    return 1
+      fi
+      if command -v huggingface-cli >/dev/null 2>&1; then
+        huggingface-cli download "$PHI4_HF_REPO" --include 'gpu/*' --local-dir "$BUNDLE_DIR/phi-4-multimodal"
+        return
+      fi
+      echo "  Install huggingface-cli, then run:"
+      echo "  pip install -U huggingface_hub"
+      echo "  huggingface-cli download $PHI4_HF_REPO --include 'gpu/*' --local-dir $BUNDLE_DIR/phi-4-multimodal"
+      return 1
 }
 
 # ==============================================================================
@@ -201,19 +194,20 @@ with open('$bundle_json', 'w') as f:
 validate_models() {
     echo ""
     echo -e "${YELLOW}=== Model Validation ===${NC}"
-    
     local all_valid=true
-    
-    for model in yolo florence-2 phi-4-multimodal; do
-        local model_path="$BUNDLE_DIR/$model/model.onnx"
-        if [ -f "$model_path" ]; then
-            local size=$(du -h "$model_path" | awk '{print $1}')
+    manifest_models="$(mktemp)"
+    python3 -c 'import json, sys; [print(model["id"] + "\t" + model["path"]) for model in json.load(open(sys.argv[1], encoding="utf-8"))["models"]]' "$MANIFEST_PATH" > "$manifest_models"
+    while IFS=$'\t' read -r model relative_path; do
+        model_path="$BUNDLE_DIR/$relative_path"
+        if [ -f "$model_path" ] || [ -d "$model_path" ]; then
+            size=$(du -sh "$model_path" | awk '{print $1}')
             echo -e "${GREEN}✓${NC} $model ($size)"
         else
             echo -e "${RED}✗${NC} $model (missing)"
             all_valid=false
         fi
-    done
+    done < "$manifest_models"
+    rm -f "$manifest_models"
     
     echo ""
     if [ "$all_valid" = true ]; then
@@ -231,6 +225,17 @@ validate_models() {
 # ==============================================================================
 # Main
 # ==============================================================================
+usage() {
+  cat <<'EOF'
+Usage: fetch-model-bundle.sh [--verify] [--write-lock] [--output-dir DIR]
+
+Fetch or validate the model bundle configured in models/bundle.json.
+--verify       Validate the manifest, lock file, and installed artifact digests.
+--write-lock   Write bundle.lock from the current manifest digest.
+--output-dir   Use DIR as the bundle directory.
+EOF
+}
+
 main() {
   local verify=false
   while [[ $# -gt 0 ]]; do
@@ -267,8 +272,6 @@ main() {
     write_lock
   fi
 }
-
-main "$@"
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -319,28 +322,27 @@ print(f"Lock {lock_path.name} matches the manifest")
 PY
   fi
 
+  manifest_entries="$(mktemp)"
+  python3 -c 'import json, sys; [print(model["path"] + "\t" + model["sha256"]) for model in json.load(open(sys.argv[1], encoding="utf-8"))["models"]]' "${MANIFEST_PATH}" > "${manifest_entries}"
   while IFS=$'\t' read -r relative_path expected_digest; do
     [[ -z "${relative_path}" ]] && continue
     artifact_path="${BUNDLE_DIR}/${relative_path}"
-    if [[ ! -f "${artifact_path}" ]]; then
+    if [[ ! -f "${artifact_path}" && ! -d "${artifact_path}" ]]; then
       printf 'PENDING: %s is not installed\n' "${relative_path}"
       continue
     fi
+    if [[ -z "${expected_digest}" ]]; then
+      printf 'PRESENT: %s (digest pending)\n' "${relative_path}"
+      continue
+    fi
     actual_digest="$(sha256sum "${artifact_path}" | awk '{print $1}')"
-    [[ "${actual_digest}" == "${expected_digest}" ]] || {
+    if [[ "${actual_digest}" != "${expected_digest}" ]]; then
       printf 'ERROR: digest mismatch for %s\n' "${relative_path}" >&2
       exit 1
-    }
+    fi
     printf 'PASS: %s\n' "${relative_path}"
-  done < <(python3 - "${MANIFEST_PATH}" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-for model in json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["models"]:
-    print(f"{model['path']}\t{model['sha256']}")
-PY
-)
+  done < "${manifest_entries}"
+  rm -f "${manifest_entries}"
 }
 
 fetch_bundle() {
@@ -393,4 +395,6 @@ Path(sys.argv[2]).write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8"
 PY
   printf 'WROTE: %s\n' "${LOCK_PATH}"
 }
+
+main "$@"
 

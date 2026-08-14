@@ -2,9 +2,29 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from inference_api.service import normalize_inference_response
+from inference_api.service import (
+    FrameInferenceRequest,
+    create_app,
+    normalize_inference_response,
+)
 from event_rules.service import EventRuleConfig, apply_event_rules
 from local_store.service import LocalDetectionStore
+
+
+class FakeFoundryResponse:
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict[str, object]:
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": '[{"label":"person","confidence":0.9,"bbox":[0.1,0.2,0.4,0.7]}]'
+                    }
+                }
+            ]
+        }
 
 
 def test_given_foundry_response_when_normalize_then_returns_detection_list() -> None:
@@ -24,6 +44,34 @@ def test_given_foundry_response_when_normalize_then_returns_detection_list() -> 
     assert results[0].label == "person"
     assert results[0].confidence == 0.91
     assert results[0].bbox == (0.1, 0.2, 0.4, 0.7)
+
+
+def test_given_frame_when_infer_then_forwards_image_and_normalizes_response(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_post(url: str, **kwargs):
+        captured["url"] = url
+        captured["json"] = kwargs["json"]
+        return FakeFoundryResponse()
+
+    import inference_api.service as service
+
+    monkeypatch.setattr(service.requests, "post", fake_post)
+    app = create_app("http://foundry-local:8000")
+    infer_route = next(route.endpoint for route in app.routes if route.path == "/infer")
+
+    response = infer_route(
+        FrameInferenceRequest(
+            frame_jpeg=b"jpeg-bytes",
+            model_id="yolo",
+            source_id="camera-1",
+        )
+    )
+
+    assert captured["url"] == "http://foundry-local:8000/v1/chat/completions"
+    assert captured["json"]["image_base64"] == "anBlZy1ieXRlcw=="
+    assert response.detections[0]["label"] == "person"
+    assert response.detections[0]["source_id"] == "camera-1"
 
 
 def test_given_low_confidence_and_short_dwell_when_apply_rules_then_filters() -> None:

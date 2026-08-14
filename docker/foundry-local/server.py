@@ -1,9 +1,11 @@
 import hashlib
 import json
 import os
+import base64
 from pathlib import Path
 from typing import Any
 
+import cv2
 import numpy as np
 import onnxruntime as ort
 from fastapi import FastAPI, HTTPException
@@ -23,6 +25,7 @@ app = FastAPI(title="Foundry Local Runtime", version="0.1.0")
 class ChatRequest(BaseModel):
     model: str
     messages: list[dict[str, Any]]
+    image_base64: str | None = None
 
 
 def load_manifest() -> dict[str, Any]:
@@ -33,10 +36,11 @@ def load_manifest() -> dict[str, Any]:
 
 def model_status(model: dict[str, Any]) -> dict[str, Any]:
     artifact = bundle_dir / model["path"]
-    available = artifact.is_file()
+    available = artifact.is_file() or artifact.is_dir()
     digest = None
     if available:
-        digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+        if artifact.is_file():
+            digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
     return {
         "id": model["id"],
         "object": "model",
@@ -68,60 +72,96 @@ def models() -> dict[str, Any]:
     }
 
 
-def _run_onnx_inference(model_path: str, model_id: str) -> list[dict[str, Any]]:
-    """
-    Load an ONNX model and return synthetic inference results based on model type.
-    For actual vision models, this would perform real inference; here we return
-    representative detections matching the expected output schema.
-    """
-    try:
-        if model_path:
-            session = ort.InferenceSession(model_path, providers=[execution_provider])
-    except Exception as e:
+def _run_onnx_inference(model_path: str, model_id: str, image_bytes: bytes) -> list[dict[str, Any]]:
+    if model_id != "yolo":
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to load ONNX model: {str(e)}",
+            status_code=501,
+            detail=f"ONNX post-processing is not implemented for model {model_id}",
         )
 
-    # Return synthetic detections based on model type
-    if model_id == "yolo":
-        # YOLO returns object detections: class, confidence, bounding box
-        return [
+    image = cv2.imdecode(np.frombuffer(image_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if image is None:
+        raise HTTPException(status_code=400, detail="image_base64 is not a valid image")
+
+    try:
+        session = ort.InferenceSession(model_path, providers=[execution_provider])
+        input_info = session.get_inputs()[0]
+        input_shape = input_info.shape
+        input_height = int(input_shape[2] or 640)
+        input_width = int(input_shape[3] or 640)
+        resized = cv2.resize(image, (input_width, input_height))
+        tensor = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        tensor = np.transpose(tensor, (2, 0, 1))[np.newaxis, ...]
+        output = session.run(None, {input_info.name: tensor})[0]
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=f"ONNX inference failed: {error}") from error
+
+    predictions = np.asarray(output)
+    if predictions.ndim == 3:
+        predictions = predictions[0]
+    if predictions.ndim != 2:
+        raise HTTPException(status_code=500, detail="Unsupported YOLO output shape")
+    if predictions.shape[0] < predictions.shape[1]:
+        predictions = predictions.transpose()
+
+    detections: list[dict[str, Any]] = []
+    for prediction in predictions:
+        if prediction.shape[0] < 6:
+            continue
+        class_scores = prediction[4:]
+        class_index = int(np.argmax(class_scores))
+        confidence = float(class_scores[class_index])
+        if confidence < 0.25:
+            continue
+        center_x, center_y, width, height = map(float, prediction[:4])
+        detections.append(
             {
-                "id": "detection-1",
-                "label": "person",
-                "confidence": 0.92,
-                "bbox": [100.0, 50.0, 300.0, 400.0],
-            },
-            {
-                "id": "detection-2",
-                "label": "backpack",
-                "confidence": 0.87,
-                "bbox": [150.0, 200.0, 250.0, 350.0],
-            },
-        ]
-    elif model_id == "florence-2":
-        # Florence-2 returns detailed object descriptions and properties
-        return [
-            {
-                "id": "caption-1",
-                "label": "person wearing blue jacket",
-                "confidence": 0.85,
-                "bbox": [100.0, 50.0, 300.0, 400.0],
+                "label": str(class_index),
+                "confidence": confidence,
+                "bbox": [
+                    (center_x - width / 2) / input_width,
+                    (center_y - height / 2) / input_height,
+                    (center_x + width / 2) / input_width,
+                    (center_y + height / 2) / input_height,
+                ],
             }
-        ]
-    elif model_id == "phi-4-multimodal":
-        # Phi-4-multimodal returns reasoning and text output
-        return [
-            {
-                "id": "reasoning-1",
-                "label": "analysis",
-                "confidence": 0.88,
-                "content": "Image contains multiple objects in an indoor setting",
-            }
-        ]
-    else:
-        return [{"id": "result-1", "label": "unknown", "confidence": 0.5}]
+        )
+    return detections
+
+
+def _run_genai_inference(model_path: str, image_bytes: bytes) -> list[dict[str, Any]]:
+    try:
+        import onnxruntime_genai as og
+    except ImportError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="onnxruntime-genai-cuda is required for Phi-4 inference",
+        ) from error
+
+    image_path = "/tmp/tiger-poc-phi4-input.jpg"
+    Path(image_path).write_bytes(image_bytes)
+    try:
+        model = og.Model(model_path)
+        tokenizer = og.Tokenizer(model)
+        processor = model.create_multimodal_processor()
+        images = og.Images.open(image_path)
+        prompt = "<|user|><|image_1|>Return a concise JSON description of the image.<|end|><|assistant|>"
+        inputs = processor(prompt, images=images)
+        params = og.GeneratorParams(model)
+        params.set_search_options(max_length=512, batch_size=1)
+        generator = og.Generator(model, params)
+        generator.set_inputs(inputs)
+        output_tokens: list[int] = []
+        while not generator.is_done():
+            generator.generate_next_token()
+            output_tokens.extend(generator.get_next_tokens())
+        text = tokenizer.decode(output_tokens)
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=f"Phi-4 inference failed: {error}") from error
+    finally:
+        Path(image_path).unlink(missing_ok=True)
+
+    return [{"label": "analysis", "confidence": 1.0, "content": text}]
 
 
 @app.post("/v1/chat/completions")
@@ -136,24 +176,29 @@ def chat_completions(request: ChatRequest) -> dict[str, Any]:
 
     model_path = bundle_dir / model["path"]
     if runtime_mode != "mock":
-        if not model_path.is_file():
+        if not model_path.is_file() and not model_path.is_dir():
             raise HTTPException(
                 status_code=503,
                 detail=f"Model artifact is not installed: {model['path']}",
             )
-        # Run actual inference or get synthetic results
+        if not request.image_base64:
+            raise HTTPException(status_code=400, detail="image_base64 is required")
         try:
-            detections = _run_onnx_inference(str(model_path), request.model)
-        except HTTPException:
-            raise
-        except Exception as e:
+            image_bytes = base64.b64decode(request.image_base64, validate=True)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail="image_base64 is invalid") from error
+        if model.get("runtime") == "onnxruntime-genai-cuda":
+            detections = _run_genai_inference(str(model_path), image_bytes)
+        elif model.get("runtime") == "transformers":
             raise HTTPException(
-                status_code=500,
-                detail=f"Inference failed: {str(e)}",
+                status_code=501,
+                detail="Florence-2 requires its Transformers runtime adapter",
             )
+        else:
+            detections = _run_onnx_inference(str(model_path), request.model, image_bytes)
     else:
         # Mock mode: return synthetic detections without loading model files
-        detections = _run_onnx_inference("", request.model)
+        detections = []
 
     return {
         "id": "chatcmpl-tiger-poc",

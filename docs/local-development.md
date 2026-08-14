@@ -67,10 +67,10 @@ The command passes when the container prints the RTX 5070 and the host driver ve
 
 Epic 2 supports both repeatable test input and real RTSP cameras on the local network.
 
-The simulator is optional. Start it explicitly with the `simulator` profile:
+The default Compose stack includes the simulator for repeatable local runs:
 
 ```bash
-VIDEO_SOURCE=rtsp://rtsp-simulator:8554/camera-1 docker compose --profile simulator up
+VIDEO_SOURCE=rtsp://rtsp-simulator:8554/camera-1 docker compose up
 ```
 
 The simulator publishes an FFmpeg test pattern through MediaMTX. From the host, that stream is also available at `rtsp://localhost:8554/camera-1`.
@@ -97,19 +97,19 @@ VIDEO_SOURCE=/media/sample.mp4
 
 ## Start The Development Scaffold
 
-For a real camera, set `VIDEO_SOURCE` in `.env`, then start the normal stack. The frame-grabber exits with a clear source error if this value is blank:
+For a real camera, set `VIDEO_SOURCE` in `.env`, then start the stack. The frame-grabber exits with a clear source error if this value is blank:
 
 ```bash
 docker compose up
 ```
 
-For the generated test stream, use the optional simulator profile and override the source:
+For the generated test stream, use the simulator source:
 
 ```bash
-VIDEO_SOURCE=rtsp://rtsp-simulator:8554/camera-1 docker compose --profile simulator up
+VIDEO_SOURCE=rtsp://rtsp-simulator:8554/camera-1 docker compose up
 ```
 
-The simulator services are excluded from normal `docker compose up` runs, so they do not compete with or replace a real camera feed.
+To use a real camera instead, set `VIDEO_SOURCE_TYPE=rtsp` and a camera URL in `.env`.
 
 Open the repository in VS Code and use **Dev Containers: Reopen in Container** to use the shared development environment.
 
@@ -121,10 +121,10 @@ The Compose file describes the complete target pipeline, but only the Epic 2 vid
 |-----------|---------|---------|--------------|
 | `frame-grabber` | Yes | Opens the configured recorded file or RTSP stream, samples frames at `FRAME_RATE`, JPEG-encodes them, and sends them to the pre-processor | Implemented in `apps/vision-pipeline/frame_grabber/service.py` |
 | `pre-processor` | Yes | Receives JPEG frames and their metadata at `POST /frames`; this is the handoff boundary for the future resize, normalize, and batch service | Temporary receiver implemented; preprocessing is Epic 3 |
-| `rtsp-simulator` | Only with `simulator` profile | Provides an RTSP server at `rtsp://rtsp-simulator:8554/camera-1` for repeatable local tests | Implemented with MediaMTX |
-| `sample-video` | Only with `simulator` profile | Generates a synthetic test pattern with FFmpeg and publishes it to the RTSP simulator | Implemented for testing; it is not a real camera |
-| `foundry-local` | Yes | CUDA-configurable local runtime exposing `/healthz` and `/v1` | Epic 4 runtime; model weights are fetched separately |
-| `inference-api` | Yes | Future service that calls Foundry Local and normalizes inference responses | Placeholder for Epic 5 |
+| `rtsp-simulator` | Yes | Provides an RTSP server at `rtsp://rtsp-simulator:8554/camera-1` for repeatable local tests | Implemented with MediaMTX |
+| `sample-video` | Yes | Generates a synthetic test pattern with FFmpeg and publishes it to the RTSP simulator | Implemented for testing; it is not a real camera |
+| `foundry-local` | Yes | CUDA-configurable local runtime exposing `/healthz` and `/v1` | YOLO ONNX inference; model weights are fetched separately |
+| `inference-api` | Yes | Calls Foundry Local and normalizes inference responses | Implemented for frame requests |
 | `event-rules` | Yes | Future confidence, dwell-time, and zone-entry rules engine | Placeholder for Epic 5 |
 | `local-store` | Yes | Future local persistence for detections and clips | Placeholder for Epic 5 |
 | `mosquitto` | Yes | Future local MQTT broker, replacing Azure IoT Operations for workstation development | Placeholder for Epic 6 |
@@ -138,13 +138,13 @@ For a real camera or recorded file, the path is:
 camera or MP4 -> frame-grabber -> pre-processor
 ```
 
-For the optional simulator, the path is:
+For the simulator, the path is:
 
 ```text
 sample-video (FFmpeg) -> rtsp-simulator (MediaMTX) -> frame-grabber -> pre-processor
 ```
 
-The simulator pair exists only to provide a repeatable camera-like source. It is not part of the production pipeline and is not started by ordinary `docker compose up`.
+The simulator pair provides a repeatable camera-like source for local development. Configure a real camera URL when using production-like input.
 
 ### Foundry Local Runtime
 
@@ -160,9 +160,10 @@ curl http://localhost:8000/v1/models
 ```
 
 Use `FOUNDRY_RUNTIME_MODE=mock` for a CPU-only contract smoke test. The default
-`onnx` mode returns an explicit `503` for models whose artifacts are not
-installed. Set `FOUNDRY_EXECUTION_PROVIDER` to select the provider; the local
-GPU default is `CUDAExecutionProvider`.
+`onnx` mode requires an installed model artifact and runs YOLO preprocessing,
+ONNX inference, and detection post-processing. Set
+`FOUNDRY_EXECUTION_PROVIDER` to select the provider; the local GPU default is
+`CUDAExecutionProvider`.
 
 Fetch and verify model artifacts before using ONNX mode:
 

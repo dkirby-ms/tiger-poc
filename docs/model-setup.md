@@ -5,13 +5,13 @@ This guide covers obtaining and setting up the ONNX models required for the Tige
 
 ## Overview
 
-The Tiger vision pipeline uses three ONNX models:
+The Tiger vision pipeline uses three model runtimes:
 
 | Model | Purpose | Source | Size (FP16) | Quantized | VRAM |
 |-------|---------|--------|------------|-----------|------|
 | YOLO v8 | Object detection | Ultralytics | ~375 MB | ~100 MB (INT8) | 2-3 GB |
-| Florence-2 | Vision understanding | Microsoft | ~1.2 GB | ~400 MB (INT8) | 3-4 GB |
-| Phi-4-Multimodal | Vision-language reasoning | Microsoft | ~8.5 GB | ~4.3 GB (INT4) | 6-8 GB |
+| Florence-2 | Vision understanding | Microsoft Transformers/Safetensors | ~1.2 GB | Runtime-dependent | 3-4 GB |
+| Phi-4-Multimodal | Vision-language reasoning | Microsoft ONNX Runtime GenAI | ~5.14 GB | GPU INT4 | 6-8 GB |
 
 **RTX 5070 VRAM Budget:** 12 GB total
 - YOLO + Florence-2 concurrent: ~5-7 GB
@@ -43,9 +43,13 @@ pip install huggingface-hub
 huggingface-cli download Ultralytics/YOLO-v8 --include "yolov8m.onnx"
 ```
 
-### 2. Florence-2
+### 2. Florence-2 Transformers Runtime
 
 **Official Source:** [Microsoft Florence-2](https://huggingface.co/microsoft/Florence-2-base)
+
+The official Microsoft release is MIT-licensed and distributed as a
+Transformers model. It is not treated as a single-file ONNX artifact in this
+bundle.
 
 #### Setup
 
@@ -61,98 +65,39 @@ huggingface-cli download Ultralytics/YOLO-v8 --include "yolov8m.onnx"
    pip install transformers pillow peft timm einops
    ```
 
-3. **Export ONNX:**
+3. **Download the official model files:**
    ```bash
-   python -c "
-from transformers import AutoModelForVision2Seq, AutoProcessor
-import torch
-
-model_id = 'microsoft/Florence-2-base'
-model = AutoModelForVision2Seq.from_pretrained(model_id, trust_remote_code=True)
-processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
-
-# Export using torch.onnx
-dummy_input = torch.randn(1, 3, 1024, 1024)
-torch.onnx.export(model, (dummy_input,), 'model.onnx', opset_version=14)
-   "
-   cp model.onnx ../models/florence-2/model.onnx
+   huggingface-cli download microsoft/Florence-2-base \
+     --local-dir models/florence-2
    ```
 
-**Note:** The ONNX export process may require additional handling of the model's attention layers and token embeddings. Refer to the Florence repository for the latest export scripts.
+### 3. Phi-4-Multimodal ONNX Runtime GenAI
 
-### 3. Phi-4-Multimodal
+**Official Source:** [Microsoft Phi-4-Multimodal ONNX](https://huggingface.co/microsoft/Phi-4-multimodal-instruct-onnx)
 
-**Official Source:** [Microsoft Phi-4-Multimodal](https://huggingface.co/microsoft/Phi-4-multimodal-instruct)
+The official Microsoft ONNX repository is MIT-licensed and provides a GPU
+INT4 model directory at `gpu/gpu-int4-rtn-block-32`. It uses ONNX Runtime
+GenAI rather than `onnxruntime.InferenceSession`.
 
-**Prerequisites:**
-- HuggingFace account and API token
-- NVIDIA GPU with 24 GB+ VRAM for initial quantization
-- torch, transformers, bitsandbytes
+#### Setup with the official GPU INT4 artifact
 
-#### Setup with INT4 Quantization (Recommended for RTX 5070)
-
-1. **Install dependencies:**
+1. **Install the GenAI runtime:**
    ```bash
-   pip install torch torchvision
-   pip install transformers pillow
-   pip install bitsandbytes  # For INT4 quantization
+   pip install --pre onnxruntime-genai-cuda
    ```
 
-2. **Download and quantize:**
+2. **Download the Microsoft artifact:**
    ```bash
-   python -c "
-import torch
-from transformers import AutoModelForCausalLM, BitsAndBytesConfig
-from huggingface_hub import login
-
-# Login to HuggingFace (requires token)
-login(token='YOUR_HF_TOKEN')
-
-# Configure INT4 quantization
-bnb_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_use_double_quant=True,
-    bnb_4bit_quant_type='nf4',
-    bnb_4bit_compute_dtype=torch.bfloat16
-)
-
-# Load model with quantization
-model_id = 'microsoft/Phi-4-multimodal-instruct'
-model = AutoModelForCausalLM.from_pretrained(
-    model_id,
-    quantization_config=bnb_config,
-    device_map='auto',
-    trust_remote_code=True
-)
-
-# Save quantized model
-model.save_pretrained('./phi4-int4')
-   "
+   huggingface-cli download microsoft/Phi-4-multimodal-instruct-onnx \
+     --include 'gpu/*' --local-dir models/phi-4-multimodal
    ```
 
-3. **Export to ONNX:**
+3. **Run the official multimodal sample:**
    ```bash
-   # This requires a custom export script from Microsoft or community
-   # See: https://github.com/microsoft/Phi/blob/main/phi-4/export_onnx.py
-   python export_onnx.py --model-dir ./phi4-int4 --output-dir models/phi-4-multimodal
+   python model-mm.py \
+     -m models/phi-4-multimodal/gpu/gpu-int4-rtn-block-32 \
+     -e cuda
    ```
-
-**Alternative:** Use the model directly with ONNX Runtime's Python API without full ONNX export:
-```python
-import onnxruntime as ort
-from transformers import AutoModelForCausalLM
-
-# Load quantized model
-model = AutoModelForCausalLM.from_pretrained(
-    'microsoft/Phi-4-multimodal-instruct',
-    load_in_4bit=True,
-    device_map='auto'
-)
-
-# Use model with transformers.pipeline
-from transformers import pipeline
-pipe = pipeline('image-to-text', model=model, device='cuda')
-```
 
 ## Verification
 
@@ -169,7 +114,7 @@ curl http://localhost:8000/v1/models | python -m json.tool
 # Test inference
 curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model": "yolo", "messages": [{"role": "user", "content": "test"}]}'
+  -d '{"model": "yolo", "messages": [{"role": "user", "content": "Analyze this image"}], "image_base64": "<base64-jpeg>"}'
 ```
 
 ## Model Bundle Structure
@@ -179,10 +124,10 @@ models/
 ├── bundle.json           # Manifest with model metadata
 ├── yolo/
 │   └── model.onnx       # YOLO v8 (375 MB FP32 / 100 MB INT8)
-├── florence-2/
-│   └── model.onnx       # Florence-2 (1.2 GB FP16 / 400 MB INT8)
+├── florence-2/           # Official Transformers/Safetensors files
 └── phi-4-multimodal/
-    └── model.onnx       # Phi-4-Multimodal (8.5 GB FP16 / 4.3 GB INT4)
+   └── gpu/              # Official ORT GenAI model directory
+      └── gpu-int4-rtn-block-32/
 ```
 
 ## bundle.json Format
@@ -195,11 +140,13 @@ models/
   "models": [
     {
       "id": "yolo",
-      "format": "onnx",
-      "precision": "int8",
-      "path": "yolo/model.onnx",
+      "format": "onnx-genai",
+      "precision": "int4",
+      "path": "phi-4-multimodal/gpu/gpu-int4-rtn-block-32",
       "sha256": "abc123...",
-      "source_url": "https://github.com/ultralytics/assets/releases/..."
+      "source_url": "https://huggingface.co/microsoft/Phi-4-multimodal-instruct-onnx",
+      "license": "MIT",
+      "runtime": "onnxruntime-genai-cuda"
     }
   ]
 }
@@ -223,7 +170,7 @@ sha256sum models/yolo/model.onnx | awk '{print $1}'
 - Phi-4-Multimodal (FP16): ~8 GB
 - **Total:** ~13 GB ❌ Exceeds budget
 
-**Solution:** Use INT4 quantization for Phi-4
+**Solution:** Use the official Microsoft GPU INT4 ORT GenAI artifact for Phi-4
 - Phi-4-Multimodal (INT4): ~4-5 GB
 - YOLO + Florence-2 + Phi-4 (INT4): ~9-10 GB ✓
 
