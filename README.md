@@ -165,18 +165,14 @@ The default local setup uses a Foundry-compatible service exposed on port `8000`
 * [docs/system-design.md](docs/system-design.md) - reference architecture and edge design rationale
 * [docs/local-development.md](docs/local-development.md) - GPU, Docker, and local startup guidance
 * [docs/model-setup.md](docs/model-setup.md) - model acquisition, verification, and bundle structure
-* [apps/vision-pipeline/README.md](apps/vision-pipeline/README.md) - app-level implementation notes
 
 ## Directory layout
 
 ```text
 .
 ├── apps/
-│   └── vision-pipeline/
-├── data/
-├── docker/
+│   └──
 ├── docs/
-├── k8s/
 ├── models/
 ├── samples/
 ├── scripts/

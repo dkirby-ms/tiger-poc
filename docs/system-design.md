@@ -2,7 +2,7 @@
 title: Edge Computer Vision on Foundry Local and Azure Local
 description: Reference architecture for running computer vision inference at the edge using Foundry Local on Azure Local with Azure Arc management
 author: Tiger PoC
-ms.date: 2026-08-13
+ms.date: 2026-08-14
 ms.topic: concept
 keywords:
   - azure local
@@ -20,7 +20,7 @@ estimated_reading_time: 6
 |  Azure Cloud - Control, Model Supply & Analytics Plane                      |
 |                                                                             |
 |     +-----------------+     +-----------------+     +-----------------+     |
-|     |    Azure Arc    |     | AI Foundry Hub  |     | Container Reg.  |     |
+|     |    Azure Arc    |     | Foundry         |     | Container Reg.  |     |
 |     +-----------------+     +-----------------+     +-----------------+     |
 |                                                                             |
 |     +-----------------+     +-----------------+     +-----------------+     |
@@ -46,12 +46,20 @@ estimated_reading_time: 6
 |  :                                                        |            :    |
 |  :                                                        v            :    |
 |  :   +-------------------------------------------------------------+   :    |
-|  :   |  Foundry Local Runtime  (ONNX Runtime / OpenVINO EP)        |   :    |
-|  :   |  Models: YOLO / Florence-2 / Phi-4-multimodal (ONNX)        |   :    |
-|  :   |  Serves OpenAI-compatible /v1 endpoint on the node          |   :    |
-|  :   |  Accelerator-agnostic: EP chosen at deployment time         |   :    |
-|  :   +-------------------------------------------------------------+   :    |
-|  :            |                                                        :    |
+|  :   | Foundry Local inference operator                              |   :    |
+|  :   | ModelDeployment CRDs, model cache, auth, Gateway routes      |   :    |
+|  :   +----------------------------+--------------------------------+   :    |
+|  :                                |                                    :    |
+|  :       +------------------------+------------------------+           :    |
+|  :       v                        v                        v           :    |
+|  :   +-----------+            +-----------+            +-----------+   :    |
+|  :   | YOLO      |            | Florence-2|            | Phi-4-mm  |   :    |
+|  :   | predictive|            | predictive|            | generative|   :    |
+|  :   | deployment|            | deployment|            | deployment|   :    |
+|  :   +-----------+            +-----------+            +-----------+   :    |
+|  :       |                        |                        |           :    |
+|  :       +------------------------+------------------------+           :    |
+|  :                                |                                    :    |
 |  :            v                                                        :    |
 |  :   +-----------------+   +-----------------+   +-----------------+   :    |
 |  :   |  Inference API  |-->|   Event Rules   |-->|   Local Store   |   :    |
@@ -83,8 +91,9 @@ estimated_reading_time: 6
 ### Key Relationships
 
 * Cameras stream RTSP into the frame grabber, which samples frames and hands them to the pre-processor for resize, normalization, and batching.
-* The pre-processor calls Foundry Local over the local OpenAI-compatible endpoint on the same node, so no frame data leaves the cluster during inference.
-* Foundry Local detects the accelerators the host exposes and selects the execution provider at startup, so the pipeline runs unchanged on GPU, NPU, or CPU-only nodes.
+* The pre-processor and inference API resolve each model to its own Foundry Local `ModelDeployment` endpoint. YOLO and Florence-2 use `/v1/predict`; Phi-4-multimodal uses `/v1/chat/completions`.
+* Each `ModelDeployment` owns one model, its Deployment, Service, API key Secret, and optional Gateway route. Multiple models run concurrently as independent deployments rather than in one shared runtime process.
+* The operator schedules each deployment against its requested compute and resource limits, selecting an appropriate ONNX Runtime execution provider for the target hardware.
 * The inference API applies event rules (confidence thresholds, dwell time, zone entry) and writes only detections and short clips to local storage backed by Storage Spaces Direct.
 * Event rules publish detections to the Azure IoT Operations MQTT broker running on the cluster. The broker is the single integration point at the edge, so downstream consumers subscribe to topics rather than calling the pipeline directly.
 * Azure IoT Operations dataflows handle north-bound delivery, applying transformation and filtering before forwarding to Event Hubs and Blob Storage.
@@ -97,8 +106,8 @@ estimated_reading_time: 6
 
 This architecture describes the computer vision pipeline, not a sizing for a particular workload. Azure Local hardware is right-sized during deployment planning once camera count, resolution, frame rate, and model mix are known. The pipeline stays portable across whatever sizing results:
 
-* Models run through ONNX Runtime, so the execution provider is a deployment setting rather than a code change.
-* Frame rate, batch size, and model selection are configuration, allowing the same pipeline to scale from a single camera to a dense multi-node cluster.
+* Models run through ONNX Runtime, so the execution provider, compute target, resource limits, and replicas are deployment settings rather than code changes.
+* Frame rate, batch size, and deployment selection are configuration, allowing the same pipeline to scale from a single camera to a dense multi-node cluster.
 * Scale-out happens by adding nodes to the Azure Local cluster and letting Kubernetes schedule additional inference pods, not by rewriting the pipeline.
 
 ### Edge Messaging
@@ -127,11 +136,19 @@ Development and testing run on a workstation with an NVIDIA RTX 5070. The same c
 |  :                                                        |            :    |
 |  :                                                        v            :    |
 |  :   +-------------------------------------------------------------+   :    |
-|  :   |  Foundry Local  (CUDA 12.8 EP / TensorRT 10.9, sm_120)      |   :    |
-|  :   |  Same ONNX models as edge: YOLO, Florence-2, Phi-4-mm       |   :    |
-|  :   |  Same OpenAI-compatible /v1 contract as the edge node       |   :    |
-|  :   +-------------------------------------------------------------+   :    |
-|  :            |                                                        :    |
+|  :   | Foundry Local-on-Azure-Local contract mock                  |   :    |
+|  :   | ModelDeployment status, per-deployment API keys and routes  |   :    |
+|  :   +----------------------------+--------------------------------+   :    |
+|  :                                |                                    :    |
+|  :       +------------------------+------------------------+           :    |
+|  :       v                        v                        v           :    |
+|  :   +-----------+            +-----------+            +-----------+   :    |
+|  :   | YOLO      |            | Florence-2|            | Phi-4-mm  |   :    |
+|  :   | /v1/predict            | /v1/predict            | /v1/chat  |   :    |
+|  :   +-----------+            +-----------+            +-----------+   :    |
+|  :       |                        |                        |           :    |
+|  :       +------------------------+------------------------+           :    |
+|  :                                |                                    :    |
 |  :            v                                                        :    |
 |  :   +-----------------+   +-----------------+   +-----------------+   :    |
 |  :   |  Inference API  |-->|   Event Rules   |-->|   Local Store   |   :    |
@@ -155,16 +172,18 @@ Development and testing run on a workstation with an NVIDIA RTX 5070. The same c
 
 ### Dev and Edge Parity
 
-| Layer              | Local dev (RTX 5070)          | Edge (Azure Local)             |
-|--------------------|-------------------------------|--------------------------------|
-| Accelerator        | RTX 5070, full GPU            | Right-sized per deployment     |
-| Execution provider | CUDA 12.8 EP, TensorRT 10.9   | CUDA, OpenVINO, or DirectML    |
-| Orchestration      | Docker Compose or kind        | AKS enabled by Azure Arc       |
-| Image source       | Local registry                | Azure Container Registry       |
-| Secrets            | `.env` or user secrets        | Key Vault delivered via Arc    |
-| Telemetry          | Console or local OTLP         | Azure Monitor and Event Hubs   |
-| Messaging          | Mosquitto broker container    | Azure IoT Operations broker    |
-| Video source       | Recorded MP4 or RTSP simulator| Live camera RTSP streams       |
+| Layer              | Local dev (RTX 5070)                 | Edge (Azure Local)                    |
+|--------------------|--------------------------------------|---------------------------------------|
+| Deployment contract| Docker Compose mock, one service/model| `ModelDeployment`, one deployment/model|
+| Accelerator        | RTX 5070, full GPU                   | Right-sized per deployment            |
+| Execution provider | CUDA 12.8 EP, TensorRT 10.9          | CUDA, OpenVINO, or DirectML           |
+| Endpoint and auth  | Per-service path and development key  | Per-deployment route and API key Secret|
+| Orchestration      | Docker Compose or kind                | AKS enabled by Azure Arc              |
+| Image source       | Local registry                        | Azure Container Registry              |
+| Secrets            | `.env` or user secrets                | Key Vault delivered via Arc           |
+| Telemetry          | Console or local OTLP                 | Azure Monitor and Event Hubs          |
+| Messaging          | Mosquitto broker container            | Azure IoT Operations broker           |
+| Video source       | Recorded MP4 or RTSP simulator        | Live camera RTSP streams              |
 
 ### RTX 5070 Requirements
 
@@ -174,11 +193,12 @@ The RTX 5070 is Blackwell-generation with compute capability `sm_120`, which old
 * ONNX Runtime GPU package built against CUDA 12.8. Pin the version explicitly rather than relying on the default wheel.
 * TensorRT 10.9 or later if the TensorRT execution provider is used for the detection models.
 * NVIDIA Container Toolkit installed in WSL2 so containers see the GPU through `--gpus all`.
-* 12 GB of VRAM is the working budget. YOLO and Florence-2 fit comfortably together; running Phi-4-multimodal alongside them requires quantized weights (INT4 or INT8) or sequential model loading.
+* 12 GB of VRAM is the working budget. Treat YOLO, Florence-2, and Phi-4-multimodal as separately scheduled deployments. Resource limits, node selection, and deployment order prevent their combined working sets from overcommitting the GPU.
 
 ### Keeping Parity
 
-* Select the execution provider through configuration, not code, so the same image runs with CUDA locally and the host-appropriate provider at the edge.
+* Model the `ModelDeployment` lifecycle locally, including one model reference, readiness state, deployment-specific endpoint, and independent credential for each service.
+* Select the execution provider through deployment configuration, not code, so the same model service runs with CUDA locally and the host-appropriate provider at the edge.
 * Version model files as an immutable bundle and reference the same bundle digest in both environments.
-* Run the event rules and inference API against recorded video in CI so detection behavior is validated before promotion.
+* Run the event rules and inference client against recorded video in CI, including predictive and generative endpoint contract tests, so routing behavior is validated before promotion.
 * Treat throughput numbers from the RTX 5070 as a development reference point. Capacity planning for a given deployment happens separately, once the workload is defined.

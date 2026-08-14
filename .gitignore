@@ -4,4 +4,5 @@
 data/
 models/florence-2/
 models/phi-4-multimodal/
+models/yolo/
 .env
