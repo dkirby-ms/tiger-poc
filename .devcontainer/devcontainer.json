@@ -1,9 +1,0 @@
-{
-  "name": "Tiger PoC",
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
-  "runArgs": [
-    "--gpus=all"
-  ],
-  "remoteUser": "vscode",
-  "postCreateCommand": "bash scripts/verify-local-environment.sh"
-}
