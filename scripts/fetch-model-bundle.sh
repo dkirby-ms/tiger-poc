@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# SPDX-License-Identifier: MIT
+#
 # Fetch ONNX model bundle for the Tiger vision pipeline
 # Downloads YOLO, Florence-2, and Phi-4-multimodal ONNX models
 #
@@ -33,13 +36,6 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
-
-echo "=== Tiger Vision Pipeline - Model Bundle Fetcher ==="
-echo "Output directory: $BUNDLE_DIR"
-echo ""
-
-# Create output directory structure
-mkdir -p "$BUNDLE_DIR"/{yolo,florence-2,phi-4-multimodal}
 
 # ==============================================================================
 # YOLO v8 Model
@@ -160,7 +156,8 @@ fetch_phi4() {
 # ==============================================================================
 calculate_hash() {
     local file="$1"
-    local hash=$(sha256sum "$file" | awk '{print $1}')
+  local hash
+  hash=$(sha256sum "$file" | awk '{print $1}')
     echo "    SHA256: $hash"
     echo "$hash"
 }
@@ -187,7 +184,7 @@ PY
 }
 
 update_bundle_json() {
-    local bundle_json="$REPO_DIR/models/bundle.json"
+  local bundle_json="$MANIFEST_PATH"
     
     if [ ! -f "$bundle_json" ]; then
         echo -e "${RED}✗ bundle.json not found at $bundle_json${NC}"
@@ -284,17 +281,26 @@ main() {
 
   # Keep a single, consistent bundle directory for all operations.
   mkdir -p "$BUNDLE_DIR"
+  MANIFEST_PATH="${BUNDLE_DIR}/bundle.json"
+  LOCK_PATH="${BUNDLE_DIR}/bundle.lock"
+  echo "=== Tiger Vision Pipeline - Model Bundle Fetcher ==="
+  echo "Output directory: $BUNDLE_DIR"
+  echo ""
+  mkdir -p "$BUNDLE_DIR"/{yolo,florence-2,phi-4-multimodal}
+  if [[ ! -f "$MANIFEST_PATH" ]]; then
+    cp "$REPO_DIR/models/bundle.json" "$MANIFEST_PATH"
+  fi
 
   if [[ "${verify}" == true ]]; then
     verify_bundle
   else
-    fetch_yolo || true
+    fetch_yolo
     echo ""
 
-    fetch_florence2 || true
+    fetch_florence2
     echo ""
 
-    fetch_phi4 || true
+    fetch_phi4
     echo ""
 
     update_bundle_json
@@ -316,6 +322,10 @@ require_command() {
 verify_bundle() {
   require_command sha256sum
   require_command python3
+  if [[ ! -f "${MANIFEST_PATH}" ]]; then
+    printf 'ERROR: manifest not found at %s\n' "${MANIFEST_PATH}" >&2
+    return 1
+  fi
   python3 - "${MANIFEST_PATH}" <<'PY'
 import json
 import sys
@@ -361,8 +371,9 @@ PY
     [[ -z "${relative_path}" ]] && continue
     artifact_path="${BUNDLE_DIR}/${relative_path}"
     if [[ ! -f "${artifact_path}" && ! -d "${artifact_path}" ]]; then
-      printf 'PENDING: %s is not installed\n' "${relative_path}"
-      continue
+      printf 'ERROR: %s is not installed\n' "${relative_path}" >&2
+      rm -f "${manifest_entries}"
+      return 1
     fi
     if [[ -z "${expected_digest}" ]]; then
       printf 'PRESENT: %s (digest pending)\n' "${relative_path}"

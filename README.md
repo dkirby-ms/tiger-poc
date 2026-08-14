@@ -102,25 +102,35 @@ The recommended workstation flow is described in [docs/local-development.md](doc
    VIDEO_SOURCE=rtsp://rtsp-simulator:8554/camera-1 docker compose up --build
    ```
 
-3. Verify the workstation setup:
+3. Prepare the local development environment:
+
+   ```bash
+   ./scripts/setup-local-dev.sh
+   ```
+
+   Add `--fetch-models` when the approved model artifacts are ready to
+   download. Use `--check-only` to inspect host prerequisites without making
+   changes.
+
+4. Verify the workstation setup:
 
    ```bash
    ./scripts/verify-local-environment.sh
    ```
 
-4. Fetch and verify the model bundle:
+5. Fetch and verify the model bundle:
 
    ```bash
    ./scripts/fetch-model-bundle.sh --verify
    ```
 
-5. Validate the local Foundry runtime:
+6. Validate the local Foundry runtime:
 
    ```bash
    ./scripts/verify-local-model-runtime.sh
    ```
 
-6. Start the full stack:
+7. Start the full stack:
 
    ```bash
    docker compose up --build
