@@ -21,7 +21,7 @@ The current implementation focuses on the video ingestion and inference boundary
 
 * capture frames from a real RTSP stream or file source
 * forward sampled JPEG frames to a preprocessing boundary
-* call a local Foundry-compatible inference endpoint
+* call a local inference endpoint
 * normalize detections for downstream rules and persistence
 * provide a local deployment scaffold that mirrors the eventual Azure Local design
 
