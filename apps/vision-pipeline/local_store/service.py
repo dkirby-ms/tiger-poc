@@ -33,6 +33,8 @@ class LocalDetectionStore:
     def persist_detection(self, detection: dict[str, Any], *, clip_bytes: bytes | None = None) -> dict[str, Any]:
         """Persist a detection to JSON and optionally store a clip artifact."""
 
+        self.detections_dir.mkdir(parents=True, exist_ok=True)
+        self.clips_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         record = dict(detection)
         record.setdefault("timestamp", timestamp)

@@ -27,8 +27,8 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "ffprobe -v error -rtsp_transport tcp -timeout 3000000 -read_intervals %+1 rtsp://rtsp-simulator:8554/camera-1 >/dev/null 2>&1"]
       interval: 5s
-      timeout: 3s
-      start_period: 5s
+      timeout: 10s
+      start_period: 10s
 
   frame-grabber:
     build:
@@ -96,6 +96,7 @@ services:
     environment:
       EVENT_RULES_CONFIDENCE: ${EVENT_RULES_CONFIDENCE:-0.75}
       EVENT_RULES_DWELL_TIME: ${EVENT_RULES_DWELL_TIME:-1.0}
+      EVENT_RULES_COOLDOWN_SECONDS: ${EVENT_RULES_COOLDOWN_SECONDS:-10.0}
       EVENT_RULES_ALLOWED_ZONES: ${EVENT_RULES_ALLOWED_ZONES:-}
       EVENT_RULES_PORT: 8082
     ports:
@@ -106,7 +107,7 @@ services:
   local-store:
     build:
       context: ./apps/vision-pipeline
-    command: ["sh", "-c", "umask 0002 && exec python -m local_store.service"]
+    command: ["sh", "-c", "umask 0002 && mkdir -p /data/detections/detections /data/detections/clips && exec python -m local_store.service"]
     user: "0:${LOCAL_STORE_GID:-1000}"
     environment:
       LOCAL_STORE_DIR: /data/detections

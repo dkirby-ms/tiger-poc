@@ -5,8 +5,9 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import time
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -21,6 +22,7 @@ class EventRuleConfig:
 
     confidence_threshold: float = 0.75
     dwell_time_seconds: float = 1.0
+    cooldown_seconds: float = 10.0
     allowed_zones: tuple[str, ...] = ()
 
     @classmethod
@@ -29,12 +31,14 @@ class EventRuleConfig:
         source = os.environ if env is None else env
         confidence_threshold = float(source.get("EVENT_RULES_CONFIDENCE", "0.75"))
         dwell_time_seconds = float(source.get("EVENT_RULES_DWELL_TIME", "1.0"))
+        cooldown_seconds = float(source.get("EVENT_RULES_COOLDOWN_SECONDS", "10.0"))
         allowed_zones_str = source.get("EVENT_RULES_ALLOWED_ZONES", "")
         allowed_zones = tuple(z.strip() for z in allowed_zones_str.split(",") if z.strip()) if allowed_zones_str else ()
         
         return cls(
             confidence_threshold=confidence_threshold,
             dwell_time_seconds=dwell_time_seconds,
+            cooldown_seconds=cooldown_seconds,
             allowed_zones=allowed_zones,
         )
 
@@ -76,6 +80,40 @@ def apply_event_rules(
     return results
 
 
+class EventRuleEngine:
+    """Apply event rules and suppress repeated events during a cooldown."""
+
+    def __init__(
+        self,
+        config: EventRuleConfig | None = None,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.config = config or EventRuleConfig()
+        self.clock = clock
+        self._last_emitted: dict[tuple[str, str], float] = {}
+
+    def filter(self, detections: Iterable[Any], source_id: str | None = None) -> list[dict[str, Any]]:
+        """Return eligible detections that are not in their cooldown window."""
+        eligible = apply_event_rules(detections, self.config)
+        now = self.clock()
+        emitted: list[dict[str, Any]] = []
+
+        for detection in eligible:
+            key = (source_id or detection.get("source_id") or "unknown", str(detection.get("label", "unknown")))
+            last_emitted = self._last_emitted.get(key)
+            if (
+                self.config.cooldown_seconds > 0
+                and last_emitted is not None
+                and now - last_emitted < self.config.cooldown_seconds
+            ):
+                continue
+            self._last_emitted[key] = now
+            emitted.append(detection)
+
+        return emitted
+
+
 class DetectionListRequest(BaseModel):
     """Request payload for event rules filtering."""
 
@@ -94,6 +132,7 @@ class FilteredDetectionsResponse(BaseModel):
 def create_app(rule_config: EventRuleConfig) -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(title="Event Rules", version="0.1.0")
+    engine = EventRuleEngine(rule_config)
     
     @app.get("/healthz")
     def health() -> dict[str, Any]:
@@ -101,6 +140,7 @@ def create_app(rule_config: EventRuleConfig) -> FastAPI:
             "status": "ok",
             "confidence_threshold": rule_config.confidence_threshold,
             "dwell_time_seconds": rule_config.dwell_time_seconds,
+            "cooldown_seconds": rule_config.cooldown_seconds,
             "allowed_zones": rule_config.allowed_zones,
         }
     
@@ -109,7 +149,7 @@ def create_app(rule_config: EventRuleConfig) -> FastAPI:
         """Apply event rules to a list of detections."""
         logger.info(f"Filtering {len(request.detections)} detections from {request.source_id}")
         
-        filtered = apply_event_rules(request.detections, rule_config)
+        filtered = engine.filter(request.detections, request.source_id)
         
         logger.info(f"Filtered to {len(filtered)} detections")
         return FilteredDetectionsResponse(

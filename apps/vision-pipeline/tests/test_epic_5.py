@@ -7,7 +7,7 @@ from inference_api.service import (
     create_app,
     normalize_inference_response,
 )
-from event_rules.service import EventRuleConfig, apply_event_rules
+from event_rules.service import EventRuleConfig, EventRuleEngine, apply_event_rules
 from local_store.service import LocalDetectionStore
 
 
@@ -86,6 +86,35 @@ def test_given_low_confidence_and_short_dwell_when_apply_rules_then_filters() ->
 
     assert [item["label"] for item in filtered] == ["person"]
     assert filtered[0]["confidence"] == 0.91
+
+
+def test_given_repeated_detection_when_within_cooldown_then_emits_once() -> None:
+    current_time = [100.0]
+    engine = EventRuleEngine(
+        EventRuleConfig(confidence_threshold=0.75, dwell_time_seconds=1.0, cooldown_seconds=10.0),
+        clock=lambda: current_time[0],
+    )
+    detection = {"label": "person", "confidence": 0.91, "dwell_time_seconds": 1.5, "source_id": "camera-1"}
+
+    first = engine.filter([detection], "camera-1")
+    second = engine.filter([detection], "camera-1")
+
+    assert len(first) == 1
+    assert second == []
+
+
+def test_given_repeated_detection_when_cooldown_expires_then_emits_again() -> None:
+    current_time = [100.0]
+    engine = EventRuleEngine(
+        EventRuleConfig(confidence_threshold=0.75, dwell_time_seconds=1.0, cooldown_seconds=10.0),
+        clock=lambda: current_time[0],
+    )
+    detection = {"label": "person", "confidence": 0.91, "dwell_time_seconds": 1.5, "source_id": "camera-1"}
+
+    engine.filter([detection], "camera-1")
+    current_time[0] = 110.0
+
+    assert len(engine.filter([detection], "camera-1")) == 1
 
 
 def test_given_detection_when_persist_then_writes_json_and_clip_metadata(tmp_path: Path) -> None:

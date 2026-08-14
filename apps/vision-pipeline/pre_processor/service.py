@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import base64
 import os
+import subprocess
 import tempfile
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -85,21 +86,46 @@ def preprocess_batch(frames: Iterable[bytes], target_size: tuple[int, int] | Non
 
 
 def _encode_clip(image: np.ndarray) -> bytes:
-    """Encode the captured frame as a valid short MP4 clip."""
+    """Encode the captured frame as a short browser-compatible MP4 clip."""
 
-    with tempfile.NamedTemporaryFile(suffix=".mp4") as clip_file:
-        writer = cv2.VideoWriter(
-            clip_file.name,
-            cv2.VideoWriter_fourcc(*"mp4v"),
-            1.0,
-            (image.shape[1], image.shape[0]),
-        )
-        if not writer.isOpened():
-            raise ValueError("Unable to create MP4 detection clip")
-        writer.write(image)
-        writer.release()
-        clip_file.seek(0)
-        return clip_file.read()
+    with tempfile.TemporaryDirectory() as directory:
+        input_path = os.path.join(directory, "frame.jpg")
+        output_path = os.path.join(directory, "clip.mp4")
+        if not cv2.imwrite(input_path, image):
+            raise ValueError("Unable to encode detection frame")
+
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-y",
+                    "-loop",
+                    "1",
+                    "-i",
+                    input_path,
+                    "-t",
+                    "2",
+                    "-r",
+                    "5",
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-movflags",
+                    "+faststart",
+                    output_path,
+                ],
+                check=True,
+                capture_output=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as error:
+            raise ValueError("Unable to create browser-compatible MP4 detection clip") from error
+
+        with open(output_path, "rb") as clip_file:
+            return clip_file.read()
 
 
 class PreprocessorHTTPServer(ThreadingHTTPServer):
