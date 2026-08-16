@@ -1,0 +1,90 @@
+x-model-service: &model-service
+  build:
+    context: .
+    dockerfile: docker/model-service.Dockerfile
+  image: tiger-poc/model-service:local
+  volumes:
+    - ./models:/app/models:ro
+  restart: unless-stopped
+
+services:
+  model-gateway:
+    <<: *model-service
+    container_name: model-gateway
+    environment:
+      MODEL_GATEWAY: "1"
+      MODEL_UPSTREAM_TEMPLATE: "http://model-{model_id}:{port}"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - model-yolo
+      - model-florence-2
+      - model-phi-4-multimodal
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8080/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  model-yolo:
+    <<: *model-service
+    container_name: model-yolo
+    environment:
+      MODEL_ID: yolo
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8001/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4g
+        reservations:
+          cpus: "0.5"
+          memory: 1g
+
+  model-florence-2:
+    <<: *model-service
+    container_name: model-florence-2
+    environment:
+      MODEL_ID: florence-2
+    ports:
+      - "8002:8002"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8002/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 6g
+        reservations:
+          cpus: "0.5"
+          memory: 2g
+
+  model-phi-4-multimodal:
+    <<: *model-service
+    container_name: model-phi-4-multimodal
+    environment:
+      MODEL_ID: phi-4-multimodal
+    ports:
+      - "8003:8003"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8003/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 10g
+        reservations:
+          cpus: "1.0"
+          memory: 4g

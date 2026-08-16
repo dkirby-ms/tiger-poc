@@ -1,0 +1,70 @@
+{
+  "catalog_version": "0.2.0",
+  "bundle_id": "tiger-vision-models",
+  "description": "One deployment per bundle entry, using Foundry Local ModelDeployment field names",
+  "services": [
+    {
+      "model_id": "yolo",
+      "bundle_model_id": "yolo",
+      "workloadType": "predictive",
+      "compute": "gpu",
+      "runtime": "onnx-genai",
+      "replicas": 1,
+      "port": 8001,
+      "secret": "yolo-secret",
+      "resources": {
+        "requests": {
+          "cpu": "500m",
+          "memory": "1Gi"
+        },
+        "limits": {
+          "cpu": "2000m",
+          "memory": "4Gi",
+          "gpu": 1
+        }
+      }
+    },
+    {
+      "model_id": "florence-2",
+      "bundle_model_id": "florence-2",
+      "workloadType": "predictive",
+      "compute": "gpu",
+      "runtime": "onnx-genai",
+      "replicas": 1,
+      "port": 8002,
+      "secret": "florence-2-secret",
+      "resources": {
+        "requests": {
+          "cpu": "500m",
+          "memory": "2Gi"
+        },
+        "limits": {
+          "cpu": "2000m",
+          "memory": "6Gi",
+          "gpu": 1
+        }
+      }
+    },
+    {
+      "model_id": "phi-4-multimodal",
+      "bundle_model_id": "phi-4-multimodal",
+      "workloadType": "generative",
+      "compute": "gpu",
+      "runtime": "onnx-genai",
+      "replicas": 1,
+      "port": 8003,
+      "secret": "phi-4-multimodal-secret",
+      "resources": {
+        "requests": {
+          "cpu": "1000m",
+          "memory": "4Gi"
+        },
+        "limits": {
+          "cpu": "4000m",
+          "memory": "10Gi",
+          "gpu": 1
+        }
+      }
+    }
+  ]
+}

@@ -34,7 +34,7 @@ This repository is intentionally structured as a local prototype and a reference
 | [apps/vision-pipeline](apps/vision-pipeline) | Python services for framing, preprocessing, inference, rules, and storage |
 | [docker-compose.yml](docker-compose.yml) | Local Compose stack for the edge pipeline and supporting services |
 | [models](models) | Downloaded or generated model bundles and manifest metadata |
-| [apps/local-model-runtime](apps/local-model-runtime) | Local model runtime that serves the Foundry-compatible inference API |
+| [apps/local_model_runtime](apps/local_model_runtime) | Generic single-model service, run once per model, serving the Foundry-compatible inference API |
 | [docker](docker) | Container build contexts and supporting runtime tooling |
 | [scripts](scripts) | Verification and setup helpers for workstation, model, and runtime checks |
 | [docs](docs) | Architecture, setup, and operational guidance |
@@ -57,7 +57,7 @@ The local deployment stack includes the following services:
 
 * `frame-grabber`: reads RTSP or file input, samples frames, and pushes JPEG payloads upstream
 * `pre-processor`: receives frames and preserves the handoff boundary for resizing, normalization, and batching
-* `local-model-runtime`: serves a local OpenAI-compatible model runtime from the bundled model directory
+* `model-yolo`, `model-florence-2`, `model-phi-4-multimodal`: one instance each of the same generic model service image, isolated per model and configured from [models/services.json](models/services.json)
 * `inference-api`: calls Foundry Local and normalizes responses into a shared detection schema
 * `event-rules`: applies confidence, dwell-time, and zone logic
 * `local-store`: persists detections and clips locally

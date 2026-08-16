@@ -198,6 +198,9 @@ The RTX 5070 is Blackwell-generation with compute capability `sm_120`, which old
 ### Keeping Parity
 
 * Model the `ModelDeployment` lifecycle locally, including one model reference, readiness state, deployment-specific endpoint, and independent credential for each service.
+* Run one generic model service implementation instantiated once per model, with the model bundle, workload type, endpoint, credential, and resource limits supplied as configuration. Adding a model is a catalog entry rather than a new service.
+* Use the CRD's own field names and states locally: `workloadType`, `compute`, `runtime`, `replicas`, `port`, `resources.requests`, `resources.limits.gpu`, and the `Pending`, `Creating`, `Running`, `Updating`, `Error`, `Terminating` state machine.
+* Group models by workload contract rather than by model identity: predictive models share `/v1/predict` semantics and generative models share `/v1/chat/completions` semantics, so routing and payload validation stay model-agnostic.
 * Select the execution provider through deployment configuration, not code, so the same model service runs with CUDA locally and the host-appropriate provider at the edge.
 * Version model files as an immutable bundle and reference the same bundle digest in both environments.
 * Run the event rules and inference client against recorded video in CI, including predictive and generative endpoint contract tests, so routing behavior is validated before promotion.
