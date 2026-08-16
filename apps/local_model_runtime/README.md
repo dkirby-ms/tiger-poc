@@ -132,6 +132,13 @@ URL but are not routed. An unreachable backend returns `502` with
 
 ## Run a Service
 
+Install the runtime dependencies once (`onnxruntime`, `numpy`, `Pillow`) before
+running a service outside a container:
+
+```bash
+pip install -r requirements.txt
+```
+
 Each process hosts exactly one catalog entry, selected with `--model-id` or
 the `MODEL_ID` environment variable:
 
@@ -186,8 +193,13 @@ and the generative service is OpenAI chat-completions compatible.
 | `predictive` | `prediction`      | `predictions` array plus `model`, `created`, and `usage` |
 | `generative` | `chat.completion` | `choices[].message`, `finish_reason`, and token `usage` |
 
-Weights are not loaded yet, so `predictions` is empty and the assistant
-message states that the service is validating the contract only.
+`yolo` runs real inference: `apps/local_model_runtime/yolo_inference.py` loads
+`models/yolo/model.onnx` with ONNX Runtime and returns COCO-labeled detections
+as `predictions[].{label, confidence, box}`. Set `confidence_threshold` in the
+payload to filter low-confidence boxes (default `0.25`). Other predictive and
+generative deployments have not loaded weights yet, so `florence-2` returns an
+empty `predictions` array and `phi-4-multimodal`'s assistant message states
+that the service is validating the contract only.
 
 All three services run together from a single image:
 

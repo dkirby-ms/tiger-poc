@@ -11,7 +11,13 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional
 
+from .bundle_registry import resolve_bundle_path
 from .model_service import WORKLOAD_PROFILES, WorkloadType
+
+# Predictive models with an ONNX Runtime inference path. Other predictive
+# bundles (e.g. florence-2, format "transformers") still return a contract-only
+# stub until they gain a runtime adapter of their own.
+ONNX_INFERENCE_MODELS = frozenset({"yolo"})
 
 
 @dataclass(frozen=True)
@@ -87,9 +93,21 @@ class PredictiveAdapter(WorkloadAdapter):
             "object": "prediction",
             "created": int(time.time()),
             "model": model_id,
-            "predictions": [],
+            "predictions": self._predict(model_id, payload),
             "usage": {"images": 1},
         }
+
+    def _predict(self, model_id: str, payload: Mapping[str, Any]) -> List[Dict[str, Any]]:
+        if model_id not in ONNX_INFERENCE_MODELS:
+            return []
+        model_path = resolve_bundle_path(model_id)
+        if model_path is None:
+            return []
+
+        from .yolo_inference import DEFAULT_CONFIDENCE_THRESHOLD, run_yolo_inference
+
+        threshold = float(payload.get("confidence_threshold") or DEFAULT_CONFIDENCE_THRESHOLD)
+        return run_yolo_inference(payload["image"], model_path, confidence_threshold=threshold)
 
 
 class GenerativeAdapter(WorkloadAdapter):

@@ -1,0 +1,5 @@
+# Runtime dependencies for apps/local_model_runtime.
+# Install with: pip install -r requirements.txt
+onnxruntime>=1.18,<2
+numpy>=1.26,<3
+Pillow>=10.3,<12
