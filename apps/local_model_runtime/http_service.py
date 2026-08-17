@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, Optional, Tuple
 
 from .foundry_contract import LocalFoundryDeploymentRuntime
-from .model_service import ModelService, ModelServiceSpec
+from .model_service import ModelService, ModelServiceSpec, WorkloadType
 
 STATUS_CODES: Dict[str, HTTPStatus] = {
     "ok": HTTPStatus.OK,
@@ -115,12 +115,14 @@ class ModelServiceEndpoint:
         self._runtime.set_ready(self._spec.model_id, ready)
 
 
-def extract_secret(headers) -> Optional[str]:
-    """Read the service credential from either supported auth header."""
+def extract_secret(headers, workload_type: WorkloadType) -> Optional[str]:
+    """Read the credential from the header required by the workload."""
+    if workload_type is WorkloadType.PREDICTIVE:
+        return headers.get("X-API-Key")
     authorization = headers.get("Authorization")
     if authorization and authorization.lower().startswith("bearer "):
         return authorization[7:].strip()
-    return headers.get("api-key")
+    return None
 
 
 def _make_handler(endpoint: ModelServiceEndpoint):
@@ -168,7 +170,13 @@ def _make_handler(endpoint: ModelServiceEndpoint):
                 self._respond(HTTPStatus.BAD_REQUEST, {"status": "invalid_json"})
                 return
 
-            self._respond(*endpoint.infer(self.path, extract_secret(self.headers), payload))
+            self._respond(
+                *endpoint.infer(
+                    self.path,
+                    extract_secret(self.headers, endpoint.spec.workload_type),
+                    payload,
+                )
+            )
 
     return Handler
 

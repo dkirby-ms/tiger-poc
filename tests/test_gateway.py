@@ -37,6 +37,10 @@ def request(url, method="GET", body=None, headers=None):
         return error.code, json.loads(error.read() or b"{}")
 
 
+def predictive_payload():
+    return {"items": [{"content_type": "image/jpeg", "encoder": "base64", "data": "data"}]}
+
+
 @pytest.fixture
 def stack():
     """Start backends on ephemeral ports plus a gateway in front of them."""
@@ -86,13 +90,13 @@ class TestGatewayRouting:
 
     def test_credentials_are_forwarded_and_isolated(self, stack):
         _, base = stack([spec("yolo"), spec("florence-2", port=8081)])
-        payload = {"image": "data"}
+        payload = predictive_payload()
 
         ok, _ = request(
-            f"{base}/yolo/v1/predict", "POST", payload, {"Authorization": "Bearer yolo-secret"}
+            f"{base}/yolo/v1/predict", "POST", payload, {"X-API-Key": "yolo-secret"}
         )
         crossed, _ = request(
-            f"{base}/florence-2/v1/predict", "POST", payload, {"Authorization": "Bearer yolo-secret"}
+            f"{base}/florence-2/v1/predict", "POST", payload, {"X-API-Key": "yolo-secret"}
         )
 
         assert ok == 200

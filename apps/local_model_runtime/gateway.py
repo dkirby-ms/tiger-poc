@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from .model_service import EndpointExposure, ModelServiceSpec
 
 DEFAULT_UPSTREAM_TEMPLATE = "http://127.0.0.1:{port}"
-FORWARDED_HEADERS = ("Authorization", "api-key", "Content-Type", "Accept")
+FORWARDED_HEADERS = ("Authorization", "X-API-Key", "Content-Type", "Accept")
 MAX_REQUEST_BYTES = 32 * 1024 * 1024
 
 

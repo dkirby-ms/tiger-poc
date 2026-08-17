@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Protocol
 
 from .model_service import (
     DeploymentState,
@@ -58,7 +58,21 @@ class DeploymentContract:
     workload_type: WorkloadType = WorkloadType.PREDICTIVE
 
 
-class LocalFoundryDeploymentRuntime:
+class FoundryControlPlane(Protocol):
+    """Deployment discovery and lifecycle boundary used by pipeline stages."""
+
+    def list_deployments(self) -> List[DeploymentContract]: ...
+
+    def get(self, model_id: str) -> Optional[DeploymentContract]: ...
+
+    def create_deployment(self, config: DeploymentConfig) -> DeploymentContract: ...
+
+    def delete_deployment(self, model_id: str) -> bool: ...
+
+    def wait_ready(self, model_id: str, timeout_s: float) -> bool: ...
+
+
+class LocalControlPlane:
     """Deterministic Foundry Local contract harness for local validation."""
 
     def __init__(self, specs: Optional[List[ModelServiceSpec]] = None):
@@ -141,7 +155,6 @@ class LocalFoundryDeploymentRuntime:
                 "status": "unauthorized",
                 "model_id": contract.model_id,
                 "route": contract.route,
-                "expected_secret": contract.secret,
             }
 
         adapter = adapter_for(contract.workload_type)
@@ -160,10 +173,19 @@ class LocalFoundryDeploymentRuntime:
             "status": "ok",
             "model_id": contract.model_id,
             "route": contract.route,
-            "secret": secret,
             "payload_type": WORKLOAD_PROFILES[contract.workload_type].payload_kind,
             "response": adapter.build_response(contract.model_id, payload),
         }
+
+    def get(self, model_id: str) -> Optional[DeploymentContract]:
+        """Resolve one deployment by model identity."""
+        return self._get_contract(model_id)
+
+    def wait_ready(self, model_id: str, timeout_s: float) -> bool:
+        """Return local readiness; local lifecycle transitions are synchronous."""
+        if timeout_s < 0:
+            raise ValueError("timeout_s cannot be negative")
+        return self._registry.is_ready(model_id)
 
     def get_status(self, model_id: str) -> Optional[DeploymentState]:
         """Get deployment status."""
@@ -197,3 +219,6 @@ class LocalFoundryDeploymentRuntime:
             self._supervisor.unregister(model_id)
         self.deployment_contracts = self._registry.list_deployments()
         return result
+
+
+LocalFoundryDeploymentRuntime = LocalControlPlane

@@ -32,8 +32,8 @@ from the service catalog at [`models/services.json`](../../models/services.json)
 
 | Model ID             | `workloadType` | Route                  | Accepted payload | Default state |
 |----------------------|----------------|------------------------|------------------|---------------|
-| `yolo`               | `predictive`   | `/v1/predict`          | `image`          | `Running`     |
-| `florence-2`         | `predictive`   | `/v1/predict`          | `image`          | `Running`     |
+| `yolo`               | `predictive`   | `/v1/predict`          | `items` batch    | `Running`     |
+| `florence-2`         | `predictive`   | `/v1/predict`          | `items` batch    | `Running`     |
 | `phi-4-multimodal`   | `generative`   | `/v1/chat/completions` | `messages`       | `Running`     |
 
 Catalog field names follow the Foundry Local `ModelDeployment` CRD:
@@ -41,9 +41,8 @@ Catalog field names follow the Foundry Local `ModelDeployment` CRD:
 `resources.requests` / `resources.limits`. `runtime: vllm` requires
 `compute: gpu` and does not serve predictive workloads.
 
-Each deployment has a distinct configured secret. The contract exposes the
-secret in its successful response for deterministic test assertions; it must
-not be used as an example of production credential handling.
+Each deployment has a distinct configured secret. Responses and errors never
+echo configured or supplied credentials.
 
 ## Model Services
 
@@ -121,8 +120,8 @@ rewritten to `endpoint.rewritePath` before reaching the backend:
 ```bash
 python -m apps.local_model_runtime --gateway
 curl -X POST http://localhost:8080/yolo/v1/predict \
-  -H 'Authorization: Bearer yolo-secret' \
-  -d '{"image": "base64-image-data"}'
+  -H 'X-API-Key: yolo-secret' \
+  -d '{"items":[{"content_type":"image/jpeg","encoder":"base64","data":"base64-image-data"}]}'
 ```
 
 `GET /routes` lists the active routes and `GET /healthz` reports gateway
@@ -156,13 +155,13 @@ exposes only the route its workload owns:
 | `/v1/predict`          | POST   | Predictive services only |
 | `/v1/chat/completions` | POST   | Generative services only |
 
-Requests authenticate with the service credential in either an
-`Authorization: Bearer` or `api-key` header:
+Predictive requests use `X-API-Key`. Generative requests use
+`Authorization: Bearer`.
 
 ```bash
 curl -X POST http://localhost:8001/v1/predict \
-  -H 'Authorization: Bearer yolo-secret' \
-  -d '{"image": "base64-image-data"}'
+  -H 'X-API-Key: yolo-secret' \
+  -d '{"items":[{"content_type":"image/jpeg","encoder":"base64","data":"base64-image-data"}]}'
 ```
 
 Failures map to `401` for a wrong credential, `404` for a route the service
@@ -220,15 +219,18 @@ result = runtime.dispatch(
     model_id="yolo",
     route="/v1/predict",
     secret="yolo-secret",
-    payload={"image": "base64-image-data", "confidence_threshold": 0.5},
+    payload={
+      "items": [{"content_type": "image/jpeg", "encoder": "base64", "data": "base64-image-data"}],
+      "confidence_threshold": 0.5,
+    },
 )
 
 assert result["status"] == "ok"
 ```
 
-Predictive deployments require an `image` field and reject a `messages` field.
-The chat-completions deployment requires `messages` and rejects an `image`
-field. Extra fields are otherwise retained outside the contract's concern.
+Predictive deployments require a non-empty `items` array and preserve its order
+in the response. The chat-completions deployment requires `messages` and rejects
+predictive items.
 
 ## Simulate Readiness
 
@@ -241,7 +243,7 @@ result = runtime.dispatch(
     model_id="yolo",
     route="/v1/predict",
     secret="yolo-secret",
-    payload={"image": "base64-image-data"},
+    payload={"items": [{"content_type": "image/jpeg", "encoder": "base64", "data": "base64-image-data"}]},
 )
 
 assert result["status"] == "not_ready"

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# SPDX-License-Identifier: MIT
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -65,17 +68,22 @@ PY
 
   if [[ "$workload" == "predictive" ]]; then
     route="/v1/predict"
-    body='{"image":"base64-image-data"}'
+    body='{"items":[{"content_type":"image/jpeg","encoder":"base64","data":"base64-image-data"}]}'
     expected_object="prediction"
+    auth_header="X-API-Key"
   else
     route="/v1/chat/completions"
     body='{"messages":[{"role":"user","content":"Describe the image."}]}'
     expected_object="chat.completion"
+    auth_header="Authorization"
   fi
 
+  if [[ "$workload" == "generative" ]]; then
+    secret="Bearer $secret"
+  fi
   unauthorized_code="$(curl --silent --output /dev/null --write-out '%{http_code}' \
     -X POST "$base_url$route" -H 'Content-Type: application/json' \
-    -H 'Authorization: Bearer wrong-secret' --data "$body")"
+    -H "$auth_header: wrong-secret" --data "$body")"
   if [[ "$unauthorized_code" != "401" ]]; then
     echo "$model_id: expected 401 for a wrong credential, got $unauthorized_code" >&2
     exit 1
@@ -83,7 +91,7 @@ PY
 
   inference_payload="$(curl --silent --fail -X POST "$base_url$route" \
     -H 'Content-Type: application/json' \
-    -H "Authorization: Bearer $secret" \
+    -H "$auth_header: $secret" \
     --data "$body")"
 
   MODEL_ID="$model_id" EXPECTED_OBJECT="$expected_object" INFERENCE_PAYLOAD="$inference_payload" python3 - <<'PY'

@@ -4,6 +4,13 @@ from apps.local_model_runtime.foundry_contract import LocalFoundryDeploymentRunt
 from apps.local_model_runtime.deployment_registry import DeploymentRegistry
 
 
+def predictive_payload(data="data", **values):
+    return {
+        "items": [{"content_type": "image/jpeg", "encoder": "base64", "data": data}],
+        **values,
+    }
+
+
 @pytest.fixture
 def runtime():
     return LocalFoundryDeploymentRuntime()
@@ -42,7 +49,7 @@ def test_predictive_and_generative_routes_use_the_expected_payload_semantics(run
         "yolo",
         "/v1/predict",
         "yolo-secret",
-        {"image": "base64-image-data", "confidence_threshold": 0.5},
+        predictive_payload("base64-image-data", confidence_threshold=0.5),
     )["status"] == "ok"
 
     wrong_predictive_payload = runtime.dispatch(
@@ -319,7 +326,7 @@ class TestDeploymentLifecycleIntegration:
             "new-model",
             "/v1/predict",
             "new-secret",
-            {"image": "data"}
+            predictive_payload()
         )
         
         assert result["status"] == "ok"
@@ -386,6 +393,15 @@ class TestDeploymentLifecycleIntegration:
         
         default_ids = {d.model_id for d in runtime.list_deployments()}
         assert default_ids == {"yolo", "florence-2", "phi-4-multimodal"}
+
+    def test_control_plane_resolves_and_waits_for_local_deployment(self, runtime):
+        """Test the control-plane protocol methods used by pipeline stages."""
+        assert runtime.get("yolo").model_id == "yolo"
+        assert runtime.wait_ready("yolo", timeout_s=0) is True
+
+        runtime.set_ready("yolo", False)
+
+        assert runtime.wait_ready("yolo", timeout_s=0) is False
 
     def test_credentials_removed_after_deletion(self, runtime):
         """Test that credentials are not reusable after deletion."""

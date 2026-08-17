@@ -56,6 +56,7 @@ check_prerequisites() {
 
   check_command git "Git" || ((failures += 1))
   check_command python3 "Python 3" || ((failures += 1))
+  check_command uv "uv" || ((failures += 1))
   check_command curl "curl" || ((failures += 1))
   check_command sha256sum "sha256sum" || ((failures += 1))
 
@@ -80,9 +81,8 @@ prepare_directories() {
     "$REPO_DIR/models/yolo" \
     "$REPO_DIR/models/florence-2" \
     "$REPO_DIR/models/phi-4-multimodal" \
-    "$REPO_DIR/data/detections/detections" \
-    "$REPO_DIR/data/detections/clips"
-  pass "Local model and detection directories"
+    "$REPO_DIR/data"
+  pass "Local model and event directories"
 }
 
 prepare_environment_file() {
@@ -100,23 +100,18 @@ prepare_environment_file() {
 }
 
 prepare_python_environment() {
-  local project_dir="$REPO_DIR/apps/vision-pipeline"
+  local environment_dir="$REPO_DIR/.venv"
 
-  if [[ ! -f "$project_dir/pyproject.toml" ]]; then
-    warn "apps/vision-pipeline has no pyproject.toml; skipped Python environment"
-    return
-  fi
-
-  if [[ ! -d "$project_dir/.venv" ]]; then
-    python3 -m venv "$project_dir/.venv"
+  if [[ ! -d "$environment_dir" ]]; then
+    uv venv "$environment_dir"
     pass "Created Python virtual environment"
   else
     pass "Python virtual environment already exists"
   fi
 
-  "$project_dir/.venv/bin/python" -m pip install --upgrade pip
-  "$project_dir/.venv/bin/python" -m pip install -e "$project_dir[test]"
-  pass "Installed vision-pipeline dependencies"
+  uv pip install --python "$environment_dir/bin/python" \
+    --requirements "$REPO_DIR/requirements-dev.txt"
+  pass "Installed runtime and test dependencies"
 }
 
 main() {

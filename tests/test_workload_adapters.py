@@ -4,6 +4,15 @@ from apps.local_model_runtime import LocalFoundryDeploymentRuntime, WorkloadType
 from apps.local_model_runtime.workload_adapters import adapter_for
 
 
+def predictive_payload(*data):
+    return {
+        "items": [
+            {"content_type": "image/jpeg", "encoder": "base64", "data": value}
+            for value in data
+        ]
+    }
+
+
 @pytest.fixture
 def runtime():
     return LocalFoundryDeploymentRuntime()
@@ -13,17 +22,20 @@ class TestPredictiveAdapter:
     adapter = adapter_for(WorkloadType.PREDICTIVE)
 
     def test_accepts_a_minimal_predictive_payload(self):
-        assert self.adapter.validate({"image": "data"}) is None
+        assert self.adapter.validate(predictive_payload("data")) is None
 
     @pytest.mark.parametrize(
         "payload,param",
         [
-            ({}, "image"),
-            ({"image": ""}, "image"),
-            ({"image": 5}, "image"),
-            ({"image": "data", "messages": []}, "messages"),
-            ({"image": "data", "confidence_threshold": "high"}, "confidence_threshold"),
-            ({"image": "data", "confidence_threshold": 1.5}, "confidence_threshold"),
+            ({}, "items"),
+            ({"items": []}, "items"),
+            ({"items": ["data"]}, "items[0]"),
+            ({"items": [{"content_type": "image/png", "encoder": "base64", "data": "x"}]}, "items[0].content_type"),
+            ({"items": [{"content_type": "image/jpeg", "encoder": "raw", "data": "x"}]}, "items[0].encoder"),
+            ({"items": [{"content_type": "image/jpeg", "encoder": "base64", "data": ""}]}, "items[0].data"),
+            ({**predictive_payload("data"), "messages": []}, "messages"),
+            ({**predictive_payload("data"), "confidence_threshold": "high"}, "confidence_threshold"),
+            ({**predictive_payload("data"), "confidence_threshold": 1.5}, "confidence_threshold"),
         ],
     )
     def test_rejects_invalid_payloads_with_the_offending_param(self, payload, param):
@@ -35,11 +47,12 @@ class TestPredictiveAdapter:
         assert error.message
 
     def test_response_shape(self):
-        response = self.adapter.build_response("yolo", {"image": "data"})
+        response = self.adapter.build_response("yolo", predictive_payload("first", "second"))
 
         assert response["object"] == "prediction"
         assert response["model"] == "yolo"
-        assert response["predictions"] == []
+        assert response["predictions"] == [[], []]
+        assert response["usage"]["images"] == 2
         assert response["id"].startswith("pred-")
 
 
@@ -58,7 +71,7 @@ class TestGenerativeAdapter:
             ({"messages": ["hi"]}, "messages[0]"),
             ({"messages": [{"role": "user"}]}, "messages[0].content"),
             ({"messages": [{"content": "hi"}]}, "messages[0].role"),
-            ({"messages": [{"role": "user", "content": "hi"}], "image": "data"}, "image"),
+            ({"messages": [{"role": "user", "content": "hi"}], "items": []}, "items"),
         ],
     )
     def test_rejects_invalid_payloads_with_the_offending_param(self, payload, param):
@@ -89,9 +102,9 @@ class TestGenerativeAdapter:
 
 class TestAdapterSelectionIsWorkloadBased:
     def test_all_predictive_services_share_one_adapter(self, runtime):
-        yolo = runtime.dispatch("yolo", "/v1/predict", "yolo-secret", {"image": "data"})
+        yolo = runtime.dispatch("yolo", "/v1/predict", "yolo-secret", predictive_payload("data"))
         florence = runtime.dispatch(
-            "florence-2", "/v1/predict", "florence-2-secret", {"image": "data"}
+            "florence-2", "/v1/predict", "florence-2-secret", predictive_payload("data")
         )
 
         assert yolo["response"]["object"] == florence["response"]["object"] == "prediction"

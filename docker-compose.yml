@@ -8,6 +8,14 @@ x-model-service: &model-service
   restart: unless-stopped
 
 services:
+  model-registry:
+    image: registry:2
+    profiles: ["tools"]
+    ports:
+      - "5000:5000"
+    volumes:
+      - model-registry-data:/var/lib/registry
+
   model-gateway:
     <<: *model-service
     container_name: model-gateway
@@ -88,3 +96,6 @@ services:
         reservations:
           cpus: "1.0"
           memory: 4g
+
+volumes:
+  model-registry-data:

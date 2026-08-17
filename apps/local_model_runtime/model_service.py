@@ -88,14 +88,14 @@ WORKLOAD_PROFILES: Dict[WorkloadType, WorkloadProfile] = {
     WorkloadType.PREDICTIVE: WorkloadProfile(
         route="/v1/predict",
         payload_kind="predictive",
-        required_fields=frozenset({"image"}),
-        rejected_fields=frozenset({"messages"}),
+        required_fields=frozenset({"items"}),
+        rejected_fields=frozenset({"image", "messages"}),
     ),
     WorkloadType.GENERATIVE: WorkloadProfile(
         route="/v1/chat/completions",
         payload_kind="chat-completion",
         required_fields=frozenset({"messages"}),
-        rejected_fields=frozenset({"image"}),
+        rejected_fields=frozenset({"image", "items"}),
     ),
 }
 

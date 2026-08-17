@@ -5,6 +5,8 @@ from .foundry_contract import (
     DeploymentConfig,
     DeploymentContract,
     DeploymentState,
+    FoundryControlPlane,
+    LocalControlPlane,
     LocalFoundryDeploymentRuntime,
 )
 from .model_service import (
@@ -41,11 +43,13 @@ __all__ = [
     "EndpointConfig",
     "EndpointExposure",
     "FailureReason",
+    "FoundryControlPlane",
     "Gateway",
     "GatewayHTTPServer",
     "GatewayRoute",
     "InferenceRuntime",
     "LocalFoundryDeploymentRuntime",
+    "LocalControlPlane",
     "ModelService",
     "ModelServiceEndpoint",
     "ModelServiceHTTPServer",

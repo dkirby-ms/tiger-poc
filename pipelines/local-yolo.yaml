@@ -1,0 +1,44 @@
+apiVersion: tiger.dev/v1
+kind: Pipeline
+metadata:
+  name: local-yolo
+spec:
+  defaults:
+    channel:
+      kind: inproc
+      capacity: 8
+      on_full: drop_oldest
+  stages:
+    - id: frames
+      type: source.file
+      config:
+        path: samples/input.jpg
+        stream_id: file-01
+    - id: letterbox
+      type: transform.letterbox
+      inputs: [frames]
+      config:
+        size: 640
+    - id: detect
+      type: infer.foundry.local
+      inputs: [letterbox]
+      config:
+        model_id: yolo
+        confidence_threshold: 0.35
+    - id: person-threshold
+      type: rule.threshold
+      inputs: [detect]
+      config:
+        label: person
+        min_confidence: 0.5
+    - id: person-dwell
+      type: rule.dwell
+      inputs: [person-threshold]
+      config:
+        min_dwell_s: 0
+        event_type: person_present
+    - id: events
+      type: sink.jsonl
+      inputs: [person-dwell]
+      config:
+        path: data/events.jsonl

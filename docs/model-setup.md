@@ -105,14 +105,30 @@ After obtaining the models, verify they're in place and correctly configured:
 
 ```bash
 # Download artifacts and update their deterministic SHA-256 digests
-PATH="$PWD/apps/vision-pipeline/.venv/bin:$PATH" ./scripts/fetch-model-bundle.sh --write-lock
+./scripts/fetch-model-bundle.sh --write-lock
 
 # Verify artifact digests and manifest lock
-PATH="$PWD/apps/vision-pipeline/.venv/bin:$PATH" ./scripts/fetch-model-bundle.sh --verify
+./scripts/fetch-model-bundle.sh --verify
 
 # Build, start, probe, and clean up the local model runtime
 ./scripts/verify-local-model-runtime.sh
 ```
+
+## OCI artifact round trip
+
+Install ORAS, enable Docker access in the current Linux environment, then run:
+
+```bash
+docker compose --profile tools up -d model-registry
+./scripts/package-model-artifact.sh roundtrip \
+   yolo localhost:5000/models/yolo:dev /tmp/tiger-yolo
+docker compose --profile tools down
+```
+
+The script publishes `model.onnx` and `bundle.json`, resolves the OCI digest,
+pulls into a clean directory, and verifies the model SHA-256 against the bundle
+manifest. Directory-based model artifacts remain on the local file path until a
+portable archive media type is selected.
 
 ## Model Bundle Structure
 

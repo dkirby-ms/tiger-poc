@@ -69,9 +69,26 @@ class PredictiveAdapter(WorkloadAdapter):
         if error is not None:
             return error
 
-        image = payload["image"]
-        if not isinstance(image, str) or not image:
-            return PayloadError(message="'image' must be a non-empty string", param="image")
+        items = payload["items"]
+        if not isinstance(items, list) or not items:
+            return PayloadError(message="'items' must be a non-empty array", param="items")
+        for index, item in enumerate(items):
+            if not isinstance(item, dict):
+                return PayloadError(message="Each item must be an object", param=f"items[{index}]")
+            for field, expected in (
+                ("content_type", "image/jpeg"),
+                ("encoder", "base64"),
+            ):
+                if item.get(field) != expected:
+                    return PayloadError(
+                        message=f"'{field}' must be '{expected}'",
+                        param=f"items[{index}].{field}",
+                    )
+            if not isinstance(item.get("data"), str) or not item["data"]:
+                return PayloadError(
+                    message="'data' must be a non-empty string",
+                    param=f"items[{index}].data",
+                )
 
         threshold = payload.get("confidence_threshold")
         if threshold is not None:
@@ -88,16 +105,22 @@ class PredictiveAdapter(WorkloadAdapter):
         return None
 
     def build_response(self, model_id: str, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        threshold = payload.get("confidence_threshold")
         return {
             "id": _deterministic_id("pred", model_id, payload),
             "object": "prediction",
             "created": int(time.time()),
             "model": model_id,
-            "predictions": self._predict(model_id, payload),
-            "usage": {"images": 1},
+            "predictions": [
+                self._predict(model_id, item["data"], threshold)
+                for item in payload["items"]
+            ],
+            "usage": {"images": len(payload["items"])},
         }
 
-    def _predict(self, model_id: str, payload: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    def _predict(
+        self, model_id: str, image: str, threshold: Any
+    ) -> List[Dict[str, Any]]:
         if model_id not in ONNX_INFERENCE_MODELS:
             return []
         model_path = resolve_bundle_path(model_id)
@@ -106,8 +129,8 @@ class PredictiveAdapter(WorkloadAdapter):
 
         from .yolo_inference import DEFAULT_CONFIDENCE_THRESHOLD, run_yolo_inference
 
-        threshold = float(payload.get("confidence_threshold") or DEFAULT_CONFIDENCE_THRESHOLD)
-        return run_yolo_inference(payload["image"], model_path, confidence_threshold=threshold)
+        confidence = float(threshold or DEFAULT_CONFIDENCE_THRESHOLD)
+        return run_yolo_inference(image, model_path, confidence_threshold=confidence)
 
 
 class GenerativeAdapter(WorkloadAdapter):

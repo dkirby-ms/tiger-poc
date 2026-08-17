@@ -35,6 +35,13 @@ def request(url, method="GET", body=None, headers=None):
         return error.code, json.loads(error.read() or b"{}")
 
 
+def predictive_payload(data="data", **values):
+    return {
+        "items": [{"content_type": "image/jpeg", "encoder": "base64", "data": data}],
+        **values,
+    }
+
+
 @pytest.fixture
 def served():
     def _serve(service_spec):
@@ -85,31 +92,31 @@ class TestModelServiceHTTP:
 
     def test_predictive_inference_requires_the_service_credential(self, served):
         _, base = served()
-        payload = {"image": "base64-image-data"}
+        payload = predictive_payload("base64-image-data")
 
         unauthorized, body = request(f"{base}/v1/predict", "POST", payload, {"Authorization": "Bearer nope"})
         assert unauthorized == 401
         assert body["error"]["type"] == "authentication_error"
 
         status, body = request(
-            f"{base}/v1/predict", "POST", payload, {"Authorization": "Bearer yolo-secret"}
+            f"{base}/v1/predict", "POST", payload, {"X-API-Key": "yolo-secret"}
         )
         assert status == 200
         assert body["object"] == "prediction"
         assert body["model"] == "yolo"
         assert "secret" not in json.dumps(body)
 
-    def test_api_key_header_is_accepted(self, served):
+    def test_legacy_api_key_header_is_rejected(self, served):
         _, base = served()
 
         status, _ = request(
             f"{base}/v1/predict",
             "POST",
-            {"image": "data"},
+            predictive_payload(),
             {"api-key": "yolo-secret"},
         )
 
-        assert status == 200
+        assert status == 401
 
     def test_generative_service_serves_only_its_own_route(self, served):
         _, base = served(spec("phi-4-multimodal", WorkloadType.GENERATIVE, "phi-secret"))
@@ -127,7 +134,7 @@ class TestModelServiceHTTP:
         assert body["choices"][0]["finish_reason"] == "stop"
         assert body["usage"]["total_tokens"] > 0
 
-        wrong_route, error_body = request(f"{base}/v1/predict", "POST", {"image": "data"}, headers)
+        wrong_route, error_body = request(f"{base}/v1/predict", "POST", predictive_payload(), headers)
         assert wrong_route == 404
         assert error_body["error"]["type"] == "not_found_error"
 
@@ -138,14 +145,14 @@ class TestModelServiceHTTP:
             f"{base}/v1/predict",
             "POST",
             {"messages": [{"role": "user", "content": "hi"}]},
-            {"Authorization": "Bearer yolo-secret"},
+            {"X-API-Key": "yolo-secret"},
         )
 
         assert status == 400
         assert body["status"] == "wrong_payload"
         assert body["error"]["type"] == "invalid_request_error"
-        assert body["error"]["param"] == "image"
-        assert "image" in body["error"]["message"]
+        assert body["error"]["param"] == "items"
+        assert "items" in body["error"]["message"]
 
     def test_invalid_field_value_reports_the_offending_param(self, served):
         _, base = served()
@@ -153,8 +160,8 @@ class TestModelServiceHTTP:
         status, body = request(
             f"{base}/v1/predict",
             "POST",
-            {"image": "data", "confidence_threshold": 5},
-            {"Authorization": "Bearer yolo-secret"},
+            predictive_payload(confidence_threshold=5),
+            {"X-API-Key": "yolo-secret"},
         )
 
         assert status == 400
@@ -166,7 +173,7 @@ class TestModelServiceHTTP:
             f"{base}/v1/predict",
             data=b"not-json",
             method="POST",
-            headers={"Authorization": "Bearer yolo-secret"},
+            headers={"X-API-Key": "yolo-secret"},
         )
 
         with pytest.raises(urllib.error.HTTPError) as error:
@@ -180,7 +187,7 @@ class TestModelServiceHTTP:
 
         health_status, health_body = request(f"{base}/healthz")
         infer_status, infer_body = request(
-            f"{base}/v1/predict", "POST", {"image": "data"}, {"Authorization": "Bearer yolo-secret"}
+            f"{base}/v1/predict", "POST", predictive_payload(), {"X-API-Key": "yolo-secret"}
         )
 
         assert health_status == 503

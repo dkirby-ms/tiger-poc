@@ -255,5 +255,9 @@ class TestDefaultCatalog:
             "only-model",
             "/v1/predict",
             "only-model-secret",
-            {"image": "data"},
+            {
+                "items": [
+                    {"content_type": "image/jpeg", "encoder": "base64", "data": "data"}
+                ]
+            },
         )["status"] == "ok"

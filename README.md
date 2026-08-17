@@ -31,15 +31,14 @@ This repository is intentionally structured as a local prototype and a reference
 
 | Area | Purpose |
 |------|---------|
-| [apps/vision-pipeline](apps/vision-pipeline) | Python services for framing, preprocessing, inference, rules, and storage |
+| [apps/pipeline_framework](apps/pipeline_framework) | Manifest-driven framing, preprocessing, inference, rules, and storage runtime |
 | [docker-compose.yml](docker-compose.yml) | Local Compose stack for the edge pipeline and supporting services |
 | [models](models) | Downloaded or generated model bundles and manifest metadata |
 | [apps/local_model_runtime](apps/local_model_runtime) | Generic single-model service, run once per model, serving the Foundry-compatible inference API |
 | [docker](docker) | Container build contexts and supporting runtime tooling |
 | [scripts](scripts) | Verification and setup helpers for workstation, model, and runtime checks |
 | [docs](docs) | Architecture, setup, and operational guidance |
-| [samples](samples) | Local recorded inputs and sample media |
-| [k8s](k8s) | Shared Kubernetes-oriented deployment assets |
+| [pipelines](pipelines) | Executable pipeline manifests |
 | [data](data) | Detection outputs and persistence examples |
 
 ## Solution architecture
@@ -47,7 +46,7 @@ This repository is intentionally structured as a local prototype and a reference
 The project models a lightweight vision pipeline that mirrors an edge deployment pattern:
 
 ```text
-camera or file -> frame-grabber -> pre-processor -> inference-api -> event-rules -> local-store
+image, folder, or video -> letterbox -> model deployment -> threshold -> dwell -> JSONL
                               |
                               v
                         Foundry Local
@@ -55,14 +54,12 @@ camera or file -> frame-grabber -> pre-processor -> inference-api -> event-rules
 
 The local deployment stack includes the following services:
 
-* `frame-grabber`: reads RTSP or file input, samples frames, and pushes JPEG payloads upstream
+* `pipeline_framework`: validates a typed DAG and runs bounded in-process channels
 * `pre-processor`: receives frames and preserves the handoff boundary for resizing, normalization, and batching
 * `model-yolo`, `model-florence-2`, `model-phi-4-multimodal`: one instance each of the same generic model service image, isolated per model and configured from [models/services.json](models/services.json)
-* `inference-api`: calls Foundry Local and normalizes responses into a shared detection schema
-* `event-rules`: applies confidence, dwell-time, and zone logic
-* `local-store`: persists detections and clips locally
-* `rtsp-simulator`: provides a test RTSP feed for repeatable local runs
-* `mosquitto` and `dataflow-stub`: placeholders for local messaging and north-bound flow simulation
+* `infer.foundry.local`: resolves a ready model by deployment identity and normalizes detections
+* `rule.threshold` and `rule.dwell`: produce one event per continuous matching episode
+* `sink.jsonl`: persists versioned events with bounded file retention
 
 This layout intentionally makes future service boundaries explicit while keeping the current codebase focused on working local ingestion and inference.
 
@@ -70,9 +67,9 @@ This layout intentionally makes future service boundaries explicit while keeping
 
 The repository is a working prototype with an implemented local development scaffold. Current scope is best described as:
 
-* implemented: local video capture, frame delivery, model runtime verification, inference normalization, and service scaffold
-* partial: preprocessing pipeline behavior, event rules logic, and durable local storage
-* planned: broader AZURE Local and cloud integration, message transport, and production-style persistence
+* implemented: image, folder, recorded-video, and reconnecting RTSP input; bounded channels; manifest validation; local inference; threshold and dwell rules; retained JSONL output
+* implemented: predictive request batching, workload-specific authentication, and local model lifecycle contracts
+* planned: object tracking, clip and MQTT sinks, HTTP partitioning, and live Foundry Local operator integration
 
 The docs describe the intended architecture and current backlog explicitly, so the local environment remains useful for testing and iteration without overstating production readiness.
 
@@ -86,23 +83,11 @@ To run the project locally, you will need:
 * Python 3.11 for the app services
 * A valid model bundle under [models](models)
 
-The recommended workstation flow is described in [docs/local-development.md](docs/local-development.md). For GPU and Docker setup details, see that document and the model setup guide.
+Use [docs/model-setup.md](docs/model-setup.md) for model acquisition and artifact verification.
 
 ## Quick start
 
-1. Create your local environment configuration from the sample file:
-
-   ```bash
-   cp .env.example .env
-   ```
-
-2. Set the camera or input source in `.env` before starting the default stack. For the built-in simulator, you can use:
-
-   ```bash
-   VIDEO_SOURCE=rtsp://rtsp-simulator:8554/camera-1 docker compose up --build
-   ```
-
-3. Prepare the local development environment:
+1. Prepare the local development environment:
 
    ```bash
    ./scripts/setup-local-dev.sh
@@ -112,38 +97,37 @@ The recommended workstation flow is described in [docs/local-development.md](doc
    download. Use `--check-only` to inspect host prerequisites without making
    changes.
 
-4. Verify the workstation setup:
+2. Verify the workstation setup:
 
    ```bash
    ./scripts/verify-local-environment.sh
    ```
 
-5. Fetch and verify the model bundle:
+3. Fetch and verify the model bundle:
 
    ```bash
    ./scripts/fetch-model-bundle.sh --verify
    ```
 
-6. Validate the local Foundry runtime:
+4. Validate the local Foundry runtime:
 
    ```bash
    ./scripts/verify-local-model-runtime.sh
    ```
 
-7. Start the full stack:
+5. Validate and run a pipeline manifest:
 
    ```bash
-   docker compose up --build
+   uv run --with-requirements requirements-dev.txt python -m apps.pipeline_framework validate pipelines/local-yolo.yaml
+   uv run --with-requirements requirements-dev.txt python -m apps.pipeline_framework run pipelines/local-yolo.yaml
    ```
 
 ## Local development workflow
 
-The application code is contained in [apps/vision-pipeline](apps/vision-pipeline). To work from that directory:
+Run the complete test suite from the repository root:
 
 ```bash
-cd apps/vision-pipeline
-python -m pip install -e '.[test]'
-pytest
+uv run --with-requirements requirements-dev.txt pytest -q
 ```
 
 The tests cover runtime contract and model-manifest expectations, including the local bundle verification flow. The project is designed for iterative development using Docker Compose for infrastructure and pytest for service-level checks.
@@ -163,7 +147,7 @@ The default local setup uses a Foundry-compatible service exposed on port `8000`
 ## Key documentation
 
 * [docs/system-design.md](docs/system-design.md) - reference architecture and edge design rationale
-* [docs/local-development.md](docs/local-development.md) - GPU, Docker, and local startup guidance
+* [docs/pipeline-framework.md](docs/pipeline-framework.md) - implemented core and target architecture
 * [docs/model-setup.md](docs/model-setup.md) - model acquisition, verification, and bundle structure
 
 ## Directory layout
@@ -171,12 +155,12 @@ The default local setup uses a Foundry-compatible service exposed on port `8000`
 ```text
 .
 ├── apps/
-│   └──
+│   ├── local_model_runtime/
+│   └── pipeline_framework/
 ├── docs/
 ├── models/
-├── samples/
+├── pipelines/
 ├── scripts/
-├── .env.example
 ├── docker-compose.yml
 ├── README.md
 └── .gitignore
@@ -201,7 +185,7 @@ This project is best developed in small, testable increments. A strong local wor
 4. validate with pytest and Compose-based smoke checks
 5. update the relevant docs when behavior or setup changes
 
-For day-to-day work, start with the app scope in [apps/vision-pipeline](apps/vision-pipeline) and use the supporting docs in [docs](docs) for environment setup and architecture.
+For day-to-day work, start with [apps/pipeline_framework](apps/pipeline_framework) and use [docs/pipeline-framework.md](docs/pipeline-framework.md) for the architecture and remaining migration phases.
 
 ## Summary
 
