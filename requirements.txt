@@ -1,9 +1,0 @@
-# Runtime dependencies for apps/local_model_runtime.
-# Install with: pip install -r requirements.txt
-onnxruntime>=1.18,<2
-numpy>=1.26,<3
-Pillow>=10.3,<12
-pydantic>=2.7,<3
-PyYAML>=6,<7
-av>=12,<17
-ulid-py>=1.1,<2
