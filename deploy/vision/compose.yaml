@@ -1,0 +1,45 @@
+name: tiger
+services:
+  vision:
+    image: tiger-vision:0.1.0
+    platform: linux/amd64
+    build:
+      context: ../../apps/detect
+      dockerfile: Dockerfile
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    cpus: 2
+    mem_limit: 1536m
+    pids_limit: 128
+    stop_grace_period: 30s
+    restart: "no"
+    tmpfs:
+      - /tmp:size=268435456,mode=1777
+    environment:
+      RTSP_URL_FILE: /run/secrets/rtsp_url
+      YOLO_MODEL: /models/model.pt
+      YOLO_MODEL_SHA256: ${YOLO_MODEL_SHA256:?Set YOLO_MODEL_SHA256 in your local .env}
+      CAMERA_ID: ${CAMERA_ID:-camera-01}
+      CONFIDENCE: ${CONFIDENCE:-0.5}
+      FRAME_STRIDE: ${FRAME_STRIDE:-5}
+      MAX_FRAMES: ${MAX_FRAMES:-0}
+      OUTPUT_DIR: /output
+    secrets:
+      - rtsp_url
+    volumes:
+      - type: bind
+        source: ${MODEL_FILE:?Set MODEL_FILE to your trusted model path}
+        target: /models/model.pt
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${OUTPUT_DIR:?Set OUTPUT_DIR to an existing writable output directory}
+        target: /output
+        bind:
+          create_host_path: false
+secrets:
+  rtsp_url:
+    file: ${RTSP_SECRET_FILE:?Set RTSP_SECRET_FILE to your local camera URL file}

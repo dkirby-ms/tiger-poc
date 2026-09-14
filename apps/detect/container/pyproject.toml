@@ -1,0 +1,44 @@
+[project]
+name = "tiger-vision-container"
+version = "0.1.0"
+description = "CPU runtime packaging for the existing Tiger RTSP detector"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "opencv-python==4.14.0.94",
+    "ultralytics==8.4.152",
+    "torch==2.14.0",
+    "torchvision==0.29.0",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel",
+    "ipywidgets",
+    "pytest",
+    "ruff",
+    "tqdm",
+]
+
+[tool.uv]
+package = false
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", ".."]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
