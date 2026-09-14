@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Tiger Camera</string>
+    <string name="description">Camera-only RTSP source\nH.264 | 640 x 480 | 5 fps | No audio</string>
+    <string name="lab_warning">Lab use only: video is unencrypted and accessible to devices on this network. Use an isolated Wi-Fi network, disable cellular/VPN, and keep sensitive scenes out of view.</string>
+    <string name="lab_acknowledge">I have permission to stream this scene on an isolated lab network.</string>
+    <string name="camera_label">Camera lens</string>
+    <string-array name="lenses">
+        <item>Rear camera</item>
+        <item>Front camera</item>
+    </string-array>
+    <string name="start">Start streaming</string>
+    <string name="stop">Stop streaming</string>
+    <string name="stopped">Stopped. Camera is off.</string>
+    <string name="permission_needed">Camera permission is required. Grant permission, then tap Start again.</string>
+    <string name="permission_granted">Camera permission granted. Tap Start when ready.</string>
+    <string name="lab_needed">Acknowledge the isolated lab session before starting.</string>
+    <string name="network_needed">Connect to one isolated Wi-Fi network with a private IPv4 address. Disable cellular, VPN and other network connections.</string>
+    <string name="preview_needed">Preview is not ready. Try Start again when the app is visible.</string>
+    <string name="preparing">Preparing video-only stream</string>
+    <string name="listening">Streaming: %1$s\nClient: RTSP over TCP. Session ends after 10 minutes.</string>
+    <string name="unsupported">This camera could not prepare the required H.264 profile. Camera is off.</string>
+    <string name="camera_error">Camera or encoder failed. Stream stopped; camera is off.</string>
+    <string name="server_error">RTSP connection failed. Stream stopped; camera is off.</string>
+    <string name="network_changed">Network changed. Stream stopped. Confirm the lab network before restarting.</string>
+    <string name="session_expired">Ten-minute session ended. Camera is off.</string>
+    <string name="preview_description">Live camera preview while streaming</string>
+</resources>

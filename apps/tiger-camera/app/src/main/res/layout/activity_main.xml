@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:fillViewport="true">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="20dp">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/app_name" android:textSize="24sp"
+            android:accessibilityHeading="true" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/description" android:paddingBottom="12dp" />
+        <SurfaceView android:id="@+id/preview" android:layout_width="match_parent"
+            android:layout_height="200dp" android:contentDescription="@string/preview_description" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/lab_warning" android:paddingTop="12dp" />
+        <CheckBox android:id="@+id/labConsent" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:minHeight="48dp"
+            android:text="@string/lab_acknowledge" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/camera_label" android:labelFor="@id/lens" />
+        <Spinner android:id="@+id/lens" android:layout_width="match_parent"
+            android:layout_height="48dp" android:entries="@array/lenses" />
+        <Button android:id="@+id/start" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/start" />
+        <Button android:id="@+id/stop" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:minHeight="48dp"
+            android:enabled="false" android:text="@string/stop" />
+        <TextView android:id="@+id/status" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="@string/stopped"
+            android:accessibilityLiveRegion="polite" android:textIsSelectable="true" />
+    </LinearLayout>
+</ScrollView>

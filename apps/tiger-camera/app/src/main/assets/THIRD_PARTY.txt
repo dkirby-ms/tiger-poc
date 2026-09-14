@@ -1,0 +1,45 @@
+Tiger Camera dependency notices
+
+RTSP-Server 1.4.3
+Copyright pedroSG94 and contributors
+https://github.com/pedroSG94/RTSP-Server/tree/3b54a59bf21e6d0e337c67516fdd97bb7eed23f7
+Apache License 2.0 (see Apache-2.0.txt)
+
+RootEncoder 2.8.1
+Copyright pedroSG94 and contributors
+https://github.com/pedroSG94/RootEncoder/tree/cca548ab7942ab50d34dede272d5da90d46c6b67
+Apache License 2.0 (see Apache-2.0.txt)
+
+Kotlin, kotlinx.coroutines and Ktor
+Copyright JetBrains s.r.o. and contributors
+https://github.com/JetBrains/kotlin
+https://github.com/Kotlin/kotlinx.coroutines
+https://github.com/ktorio/ktor
+Apache License 2.0 (see Apache-2.0.txt)
+
+AndroidX
+Copyright The Android Open Source Project
+https://android.googlesource.com/platform/frameworks/support/
+Apache License 2.0 (see Apache-2.0.txt)
+
+JetBrains annotations, kotlinx.io and kotlinx.serialization
+Copyright JetBrains s.r.o. and contributors
+https://github.com/JetBrains/java-annotations
+https://github.com/Kotlin/kotlinx-io
+https://github.com/Kotlin/kotlinx.serialization
+Apache License 2.0 (see Apache-2.0.txt)
+
+Bouncy Castle 1.84
+Copyright The Legion of the Bouncy Castle Inc.
+https://github.com/bcgit/bc-java/tree/r1rv84
+MIT-style license (see Bouncy-Castle-LICENSE.txt)
+
+SLF4J 2.0.18
+Copyright QOS.ch Sarl
+https://github.com/qos-ch/slf4j/tree/v_2.0.18
+MIT license (see SLF4J-LICENSE.txt)
+
+Gradle wrapper (build tooling, not application runtime)
+Copyright Gradle, Inc. and contributors
+https://github.com/gradle/gradle/tree/92f0512e7f06d84621afba191f75e265363890cf
+Apache License 2.0 (see Apache-2.0.txt)
