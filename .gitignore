@@ -4,3 +4,10 @@
 data/
 models/
 .env
+
+# HVE Core local workflow artifacts and skill environments
+.copilot-tracking/
+**/.venv/
+**/node_modules/
+**/.pytest_cache/
+**/.ruff_cache/

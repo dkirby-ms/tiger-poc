@@ -11,6 +11,13 @@ The MVP focuses on one line or process-monitoring scenario. The same workload sh
 
 This is a technical hypothesis, not yet a user-validated product requirement. The MVP should therefore optimize for learning and demonstrability over production completeness.
 
+Implementation must follow the [Dark Factory Engineering Standards](engineering-standards.md):
+Python, OpenCV/YOLO vision, RTSP/ONVIF discovery, Docker containers, the declared
+Azure/AI/data platforms, and reusable manifest-driven components managed through
+Infrastructure as Code. These are engineering requirements, not implemented features.
+The broader cameras/sensors/telemetry, inference/rules/agents, and
+telemetry/actions/Fabric composition model does not expand this MVP's single-scenario scope.
+
 ## User And Problem
 
 The primary user is a demo or evaluation team preparing repeatable factory scenarios. Today, changing a model, camera input, or process rule can require rewriting the surrounding integration. That makes demonstrations slow to prepare and makes it difficult to compare edge and cloud execution.
@@ -73,11 +80,11 @@ Digital-twin connector
 Existing digital-twin platform
 ```
 
-Each block should have a narrow interface. The MVP can implement the interfaces in one repository and one deployable process; separate services are not required.
+Each block should have a narrow interface and a reusable manifest contract. The MVP can implement the interfaces in one repository and one Docker-packaged process with manifest-driven deployment; separate services are not required.
 
 ### Capture adapter
 
-Reads a camera stream or prerecorded clip and emits timestamped frames. The adapter hides the input details from the perception workload.
+Reads a camera stream or prerecorded clip and emits timestamped frames. Use RTSP for camera streams and ONVIF discovery according to the engineering standards. The adapter hides the input details from the perception workload.
 
 ### Perception workload
 
@@ -126,7 +133,7 @@ ontology: line-monitoring-v1
 destination: existing-twin
 ```
 
-The exact file format can follow the repository's implementation language and tooling. Avoid building a separate configuration service.
+The exact configuration and deployment-manifest schemas remain to be defined for the Python implementation. The example above is illustrative, not an executable deployment manifest. Keep component definitions reusable and environment values separate, following the engineering standards. Avoid building a separate configuration service.
 
 ## Runtime Modes
 
@@ -188,6 +195,13 @@ Measure setup time, changes required, failures encountered, and whether the resu
 * The concept currently comes from a technical hypothesis rather than direct user research. Do not interpret the success criteria as proof of customer demand.
 
 ## Implementation Sequence
+
+Assess functionality from [hve-copilot-rover](https://github.com/lovelacer74/hve-copilot-rover)
+for selective reuse, not wholesale architecture transfer. Replace or adapt its vision
+implementations to Tiger's Python/OpenCV/YOLO and RTSP/ONVIF standards, keeping
+rover motion, clearance, and person-approach semantics out of factory contracts.
+Confirm the first module and its relevant tests before porting; leave the source
+repository unchanged. The sequence below does not approve specific source modules.
 
 1. Define the observation and process-event contracts with sample payloads.
 2. Build the prerecorded-video capture adapter and a deterministic sample workload.

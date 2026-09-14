@@ -1,0 +1,2 @@
+*.sh text eol=lf
+apps/tiger-camera/gradlew text eol=lf

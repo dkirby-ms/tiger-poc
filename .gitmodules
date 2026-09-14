@@ -1,0 +1,3 @@
+[submodule "lib/hve-core"]
+	path = lib/hve-core
+	url = https://github.com/microsoft/hve-core.git
