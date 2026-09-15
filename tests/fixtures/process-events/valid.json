@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0",
+  "eventId": "f7a58ddf-67f0-48e9-a62f-641a1db6119d",
+  "eventType": "ProcessStateChanged",
+  "subjectId": "station-01",
+  "siteId": "factory-01",
+  "deviceId": "camera-01",
+  "ontologyVersion": "1.0",
+  "sequence": 42,
+  "observedAt": "2026-09-14T19:20:30.123Z",
+  "emittedAt": "2026-09-14T19:20:30.456Z",
+  "value": { "state": "blocked" },
+  "confidence": 0.94,
+  "source": { "runtime": "foundry-local", "model": "line-monitor-v1" },
+  "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+}

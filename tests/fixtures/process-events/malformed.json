@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0",
+  "eventId": "not-a-uuid",
+  "eventType": "ProcessStateChanged",
+  "subjectId": "",
+  "siteId": "factory-01",
+  "deviceId": "camera-01",
+  "ontologyVersion": "1.0",
+  "sequence": 0,
+  "observedAt": "2026-09-14T19:20:30.123-07:00",
+  "emittedAt": "2026-09-14T19:20:30.456Z",
+  "value": { "state": "unknown" },
+  "confidence": 1.5,
+  "source": { "runtime": "foundry-local", "model": "line-monitor-v1" }
+}

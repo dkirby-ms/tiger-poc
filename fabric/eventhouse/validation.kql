@@ -1,0 +1,32 @@
+// Set this table name to the Eventhouse destination table before execution.
+let ProcessEvents = raw_process_events;
+ProcessEvents
+| summarize totalRows=count(), uniqueEventIds=dcount(eventId)
+| extend duplicateRows=totalRows - uniqueEventIds;
+
+let ProcessEvents = raw_process_events;
+ProcessEvents
+| sort by subjectId asc, sequence asc
+| serialize
+| extend previousSubject=prev(subjectId), previousSequence=toint(prev(sequence))
+| where subjectId == previousSubject and sequence > previousSequence + 1
+| project subjectId, previousSequence, sequence, missingCount=sequence - previousSequence - 1;
+
+let ProcessEvents = raw_process_events;
+ProcessEvents
+| extend rejectionReason=case(
+    schemaVersion != "1.0", "schemaVersion",
+    eventType != "ProcessStateChanged", "eventType",
+    subjectType != "Station", "subjectType",
+    isempty(eventId) or isempty(subjectId), "requiredIdentifier",
+    sequence < 1, "sequence",
+    "")
+| where isnotempty(rejectionReason)
+| summarize rejectedRows=count() by rejectionReason;
+
+let ProcessEvents = raw_process_events;
+ProcessEvents
+| extend publisherToEventhouseMs=datetime_diff(
+    "millisecond", ingestion_time(), todatetime(emittedAt))
+| summarize eventCount=count(), p50Ms=percentile(publisherToEventhouseMs, 50),
+    p95Ms=percentile(publisherToEventhouseMs, 95), maxMs=max(publisherToEventhouseMs);

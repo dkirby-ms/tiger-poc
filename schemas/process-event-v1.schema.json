@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tiger-poc.local/schemas/process-event-v1.schema.json",
+  "title": "ProcessEvent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "eventId",
+    "eventType",
+    "subjectId",
+    "siteId",
+    "deviceId",
+    "ontologyVersion",
+    "sequence",
+    "observedAt",
+    "emittedAt",
+    "value",
+    "confidence",
+    "source"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "eventId": { "type": "string", "format": "uuid" },
+    "eventType": { "const": "ProcessStateChanged" },
+    "subjectId": { "type": "string", "minLength": 1 },
+    "siteId": { "type": "string", "minLength": 1 },
+    "deviceId": { "type": "string", "minLength": 1 },
+    "ontologyVersion": { "type": "string", "minLength": 1 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "observedAt": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "emittedAt": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "value": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state"],
+      "properties": { "state": { "enum": ["blocked", "clear"] } }
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runtime", "model"],
+      "properties": {
+        "runtime": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 }
+      }
+    },
+    "traceparent": {
+      "type": "string",
+      "pattern": "^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$"
+    }
+  }
+}

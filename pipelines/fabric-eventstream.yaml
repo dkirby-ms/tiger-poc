@@ -1,0 +1,26 @@
+schemaVersion: 1
+source:
+  kind: fixture
+  path: tests/fixtures/observations/process-state.json
+  siteId: factory-01
+  deviceId: camera-01
+  subjectId: station-01
+inference:
+  mode: edge
+  runtime: foundry-local
+  model: line-monitor-v1
+ontology:
+  version: "1.0"
+  mapper: line-monitoring
+  confidenceThreshold: 0.8
+  consecutiveReadings: 2
+destination:
+  kind: fabric-eventstream
+  authentication: connection-string
+  connectionStringEnv: FABRIC_EVENTSTREAM_CONNECTION_STRING
+  partitionKey: subjectId
+  outbox:
+    kind: sqlite
+    path: .data/tiger-outbox.db
+    maxBytes: 1073741824
+    maxAgeHours: 72
