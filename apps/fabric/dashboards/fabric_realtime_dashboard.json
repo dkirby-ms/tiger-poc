@@ -1,0 +1,64 @@
+{
+  "title": "Factory Equipment Perception & Digital Twin Real-Time Dashboard",
+  "version": "1.0",
+  "autoRefreshInterval": "5s",
+  "description": "Last confirmed object and pallet presence from detect ProcessEvents; event silence is not a camera health signal",
+  "tiles": [
+    {
+      "id": "tile-total-positions",
+      "title": "Positions with Confirmed State",
+      "visualType": "stat",
+      "query": "CurrentPositionOccupancy | count",
+      "size": { "width": 3, "height": 2 },
+      "position": { "row": 0, "col": 0 }
+    },
+    {
+      "id": "tile-occupied-count",
+      "title": "Currently Occupied",
+      "visualType": "stat",
+      "query": "CurrentPositionOccupancy | where isOccupied == true | count",
+      "size": { "width": 3, "height": 2 },
+      "position": { "row": 0, "col": 3 }
+    },
+    {
+      "id": "tile-empty-count",
+      "title": "Currently Empty",
+      "visualType": "stat",
+      "query": "CurrentPositionOccupancy | where isOccupied == false | count",
+      "size": { "width": 3, "height": 2 },
+      "position": { "row": 0, "col": 6 }
+    },
+    {
+      "id": "tile-occupancy-rate",
+      "title": "Occupancy Rate (%)",
+      "visualType": "stat",
+      "query": "CurrentPositionOccupancy | summarize Rate = round(100.0 * countif(isOccupied == true) / count(), 1)",
+      "size": { "width": 3, "height": 2 },
+      "position": { "row": 0, "col": 9 }
+    },
+    {
+      "id": "tile-cell-status-table",
+      "title": "Digital Twin - Last Confirmed Position State",
+      "visualType": "table",
+      "query": "CurrentPositionOccupancy | join kind=leftouter (MonitoredPositions | join kind=inner Cells on cellId | join kind=inner Plants on plantId) on $left.subjectId == $right.positionId | project Plant = plantName, Cell = cellName, Position = positionName, SubjectId = subjectId, ObservationType = observationType, Status = iff(isOccupied, 'Occupied', 'Empty'), Confidence = confidence, LastCaptured = capturedAt, Camera = sourceId | order by Cell asc",
+      "size": { "width": 12, "height": 4 },
+      "position": { "row": 2, "col": 0 }
+    },
+    {
+      "id": "tile-recent-transitions",
+      "title": "Presence Transitions (Last 1 Hour)",
+      "visualType": "table",
+      "query": "ConfirmedPresenceEvents | where capturedAt > ago(1h) | summarize arg_max(publishedAt, *) by eventId | order by capturedAt desc | project Timestamp = capturedAt, Subject = subjectId, ObservationType = observationType, Action = iff(isOccupied, 'Present (Occupied)', 'Absent (Empty)'), Confidence = confidence, Model = model",
+      "size": { "width": 8, "height": 4 },
+      "position": { "row": 6, "col": 0 }
+    },
+    {
+      "id": "tile-ingestion-latency",
+      "title": "Edge-to-Cloud Latency (Seconds)",
+      "visualType": "timechart",
+      "query": "ProcessEventsRaw | where capturedAt > ago(30m) | extend LatencySec = datetime_diff('second', ingestion_time(), capturedAt) | summarize AvgLatency = avg(LatencySec) by bin(capturedAt, 1m)",
+      "size": { "width": 4, "height": 4 },
+      "position": { "row": 6, "col": 8 }
+    }
+  ]
+}

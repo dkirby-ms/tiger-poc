@@ -1,0 +1,71 @@
+{
+  "name": "ManufacturingPlantTwin",
+  "version": "1.0.0",
+  "description": "Design reference for manually configuring Plant, Cell and MonitoredPosition entities in Fabric; not an official import format",
+  "entityTypes": [
+    {
+      "id": "Plant",
+      "displayName": "Manufacturing Plant",
+      "description": "Physical factory facility",
+      "properties": [
+        { "name": "plantId", "type": "string", "isPrimaryKey": true },
+        { "name": "plantName", "type": "string" },
+        { "name": "location", "type": "string" }
+      ]
+    },
+    {
+      "id": "Cell",
+      "displayName": "Manufacturing Cell",
+      "description": "Work cell or robotic station inside a plant",
+      "properties": [
+        { "name": "cellId", "type": "string", "isPrimaryKey": true },
+        { "name": "cellName", "type": "string" },
+        { "name": "lineType", "type": "string" }
+      ]
+    },
+    {
+      "id": "MonitoredPosition",
+      "displayName": "Monitored Position",
+      "description": "Object or pallet region identified by detect subjectId",
+      "properties": [
+        { "name": "positionId", "type": "string", "isPrimaryKey": true },
+        { "name": "positionName", "type": "string" },
+        { "name": "isOccupied", "type": "boolean" },
+        { "name": "confidence", "type": "double" },
+        { "name": "observationType", "type": "string" },
+        { "name": "lastObservedTimestamp", "type": "datetime" },
+        { "name": "monitoredSourceId", "type": "string" }
+      ]
+    }
+  ],
+  "relationshipTypes": [
+    {
+      "id": "containsCell",
+      "displayName": "Contains Cell",
+      "sourceEntityType": "Plant",
+      "targetEntityType": "Cell"
+    },
+    {
+      "id": "monitorsPosition",
+      "displayName": "Monitors Position",
+      "sourceEntityType": "Cell",
+      "targetEntityType": "MonitoredPosition"
+    }
+  ],
+  "telemetryBindings": [
+    {
+      "targetEntityType": "MonitoredPosition",
+      "sourceStream": "CurrentPositionOccupancy",
+      "mappingRule": {
+        "matchProperty": "subjectId",
+        "entityPrimaryKey": "positionId",
+        "propertyUpdates": {
+          "isOccupied": "isOccupied",
+          "confidence": "confidence",
+          "observationType": "observationType",
+          "lastObservedTimestamp": "capturedAt"
+        }
+      }
+    }
+  ]
+}

@@ -5,3 +5,4 @@ data/
 models/
 .env
 **/.ruff_cache/*
+*.bak

@@ -1,0 +1,46 @@
+.create table ConfirmedPresenceEvents (
+    eventId: string,
+    subjectId: string,
+    sourceId: string,
+    observationType: string,
+    isOccupied: bool,
+    confidence: real,
+    capturedAt: datetime,
+    producedAt: datetime,
+    publishedAt: datetime,
+    model: string,
+    provider: string,
+    observation: dynamic
+)
+
+.create-or-alter function ExtractConfirmedPresence() {
+    ProcessEventsRaw
+    | where eventType == "ProcessEvent" and schemaVersion startswith "1."
+    | where observationType in ("PalletPresent", "ObjectPresent")
+    | where gettype(value) == "bool" and unit == "boolean"
+    | where isnotempty(eventId) and isnotempty(subjectId) and isnotempty(sourceId)
+    | where isnotnull(capturedAt) and isnotnull(producedAt) and isnotnull(publishedAt)
+    | where confidence between (0.0 .. 1.0)
+    | project
+        eventId,
+        subjectId,
+        sourceId,
+        observationType,
+        isOccupied = tobool(value),
+        confidence,
+        capturedAt,
+        producedAt,
+        publishedAt,
+        model,
+        provider,
+        observation
+}
+
+.alter table ConfirmedPresenceEvents policy update
+@'[{"IsEnabled":true,"Source":"ProcessEventsRaw","Query":"ExtractConfirmedPresence()","IsTransactional":true,"PropagateIngestionProperties":true}]'
+
+.create materialized-view with (backfill=true) CurrentPositionOccupancy on table ConfirmedPresenceEvents
+{
+    ConfirmedPresenceEvents
+    | summarize arg_max(capturedAt, *) by subjectId
+}

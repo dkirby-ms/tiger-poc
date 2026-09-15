@@ -16,5 +16,12 @@ dependencies = [
     "jsonschema[format]>=4,<5",
 ]
 
+[project.optional-dependencies]
+fabric = [
+    "azure-eventhub>=5.12,<6",
+    "azure-identity>=1.17,<2",
+    "requests>=2.32,<3",
+]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]

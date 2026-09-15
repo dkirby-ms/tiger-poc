@@ -1,0 +1,67 @@
+{
+  "plants": [
+    {
+      "plantId": "demo-plant-01",
+      "plantName": "Demo Plant",
+      "location": "Seattle, WA",
+      "relationships": {
+        "containsCell": ["cell-a", "cell-b"]
+      }
+    }
+  ],
+  "cells": [
+    {
+      "cellId": "cell-a",
+      "plantId": "demo-plant-01",
+      "cellName": "Assembly Cell Alpha",
+      "lineType": "Robotic Assembly",
+      "relationships": {
+        "monitorsPosition": ["cell-a-object-position-01"]
+      }
+    },
+    {
+      "cellId": "cell-b",
+      "plantId": "demo-plant-01",
+      "cellName": "Packaging Cell Beta",
+      "lineType": "Automated Packaging",
+      "relationships": {
+        "monitorsPosition": ["cell-b-object-position-01", "cell-b-pallet-position-01"]
+      }
+    }
+  ],
+  "monitoredPositions": [
+    {
+      "positionId": "cell-a-object-position-01",
+      "cellId": "cell-a",
+      "positionName": "Object Station A1",
+      "monitoredSourceId": "cell-a-camera-01",
+      "initialState": {
+        "isOccupied": null,
+        "confidence": null,
+        "lastObservedTimestamp": null
+      }
+    },
+    {
+      "positionId": "cell-b-object-position-01",
+      "cellId": "cell-b",
+      "positionName": "Object Station B1",
+      "monitoredSourceId": "cell-b-camera-01",
+      "initialState": {
+        "isOccupied": null,
+        "confidence": null,
+        "lastObservedTimestamp": null
+      }
+    },
+    {
+      "positionId": "cell-b-pallet-position-01",
+      "cellId": "cell-b",
+      "positionName": "Pallet Station B1",
+      "monitoredSourceId": "cell-b-camera-01",
+      "initialState": {
+        "isOccupied": null,
+        "confidence": null,
+        "lastObservedTimestamp": null
+      }
+    }
+  ]
+}

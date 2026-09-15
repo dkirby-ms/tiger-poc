@@ -1,0 +1,54 @@
+// ==============================================================================
+// Microsoft Fabric KQL Queries for Real-Time Intelligence & Dashboards
+// ==============================================================================
+
+// Query 1: Digital Twin Current State with Cell & Plant Metadata (Join with Reference)
+CurrentPositionOccupancy
+| join kind=leftouter (
+    MonitoredPositions
+    | join kind=inner Cells on cellId
+    | join kind=inner Plants on plantId
+) on $left.subjectId == $right.positionId
+| project
+    Plant = plantName,
+    Cell = cellName,
+    Position = positionName,
+    SubjectId = subjectId,
+    ObservationType = observationType,
+    Status = iff(isOccupied, "Occupied", "Empty"),
+    Confidence = confidence,
+    LastSeen = capturedAt,
+    CameraSource = sourceId,
+    Model = model
+
+// Query 2: KPI Counts (Positions with confirmed observations, not camera health)
+CurrentPositionOccupancy
+| summarize
+    TotalPositions = count(),
+    OccupiedCount = countif(isOccupied == true),
+    EmptyCount = countif(isOccupied == false),
+    OccupancyRate = round(100.0 * countif(isOccupied == true) / count(), 1)
+
+// Query 3: Transition Timeline (Last 24 hours of transitions across cells)
+ConfirmedPresenceEvents
+| where capturedAt > ago(24h)
+| summarize arg_max(publishedAt, *) by eventId
+| order by capturedAt desc
+| project
+    Timestamp = capturedAt,
+    Subject = subjectId,
+    ObservationType = observationType,
+    Transition = iff(isOccupied, "Present (Occupied)", "Absent (Empty)"),
+    Confidence = confidence,
+    Source = sourceId
+
+// Query 4: Ingestion Latency Metric (Edge capture time to Ingestion time in seconds)
+ProcessEventsRaw
+| where capturedAt > ago(1h)
+| extend LatencySeconds = datetime_diff('second', ingestion_time(), capturedAt)
+| summarize
+    AvgLatencySeconds = avg(LatencySeconds),
+    MaxLatencySeconds = max(LatencySeconds),
+    p95LatencySeconds = percentile(LatencySeconds, 95)
+    by bin(capturedAt, 5m)
+| render timechart
