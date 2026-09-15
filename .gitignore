@@ -3,6 +3,7 @@
 .venv/
 data/
 models/
+apps/vision/detections.jsonl
 .env
 
 # HVE Core local workflow artifacts and skill environments

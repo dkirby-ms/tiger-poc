@@ -1,0 +1,23 @@
+[project]
+name = "tiger-brain"
+version = "0.1.0"
+description = "Read-only person-in-zone rules for Tiger observations"
+requires-python = ">=3.14,<3.15"
+dependencies = []
+
+[dependency-groups]
+dev = ["ipykernel", "ipywidgets", "pytest", "ruff", "tqdm"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

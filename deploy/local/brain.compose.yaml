@@ -1,0 +1,58 @@
+# Opt-in overlay: combine explicitly with compose.yaml; no host API port.
+services:
+  vision:
+    memswap_limit: 1536m
+    environment:
+      VISION_SERVICE: "true"
+      VISION_BIND_HOST: vision-evidence
+      FRAME_TTL_SECONDS: ${FRAME_TTL_SECONDS:-30}
+      FRAME_BUFFER_BYTES: ${FRAME_BUFFER_BYTES:-67108864}
+    networks:
+      camera: {}
+      evidence:
+        aliases: [vision-evidence]
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ulimits:
+      core: 0
+  brain:
+    image: tiger-brain:0.1.0
+    platform: linux/amd64
+    build:
+      context: ../../apps/brain
+      dockerfile: Dockerfile
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    cpus: 0.5
+    mem_limit: 128m
+    memswap_limit: 128m
+    pids_limit: 32
+    stop_grace_period: 10s
+    restart: "no"
+    networks: [evidence]
+    environment:
+      VISION_URL: http://vision:8080
+      CAMERA_ID: ${CAMERA_ID:-camera-01}
+      ZONE: ${ZONE:-0,0,1,1}
+      PERSON_CONFIDENCE: ${PERSON_CONFIDENCE:-0.5}
+      ENTER_FRAMES: ${ENTER_FRAMES:-2}
+      EXIT_FRAMES: ${EXIT_FRAMES:-3}
+      DWELL_SECONDS: ${DWELL_SECONDS:-0}
+      STALE_SECONDS: ${STALE_SECONDS:-5}
+      POLL_SECONDS: ${POLL_SECONDS:-0.5}
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ulimits:
+      core: 0
+networks:
+  camera: {}
+  evidence:
+    internal: true

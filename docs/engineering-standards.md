@@ -11,9 +11,10 @@ proposed for reuse. Read them with the [core idea](core-idea.md) and
 that the technologies or integrations have been implemented.
 
 The repository includes design documentation, HVE Core tooling and an RTSP
-detector with a [shared vision container baseline](../apps/detect/container/README.md).
+detector with a [shared vision container baseline](../apps/vision/README.md).
 That baseline packages Python, OpenCV and Ultralytics YOLO in one service.
-A future brain runs separately; no brain or platform integration is implemented.
+A separate [rules brain](../apps/brain/README.md) emits advisory occupied, clear
+and unknown events; platform integration is not implemented.
 The separate [Tiger Camera app](../apps/tiger-camera/README.md) is an approved
 Kotlin exception for the Android source. Live RTSP into the vision container and
 local detections with verified YOLO26 Nano weights have been exercised.

@@ -13,10 +13,15 @@ Follow the canonical [Dark Factory Engineering Standards](docs/engineering-stand
 for technology choices, composability, and reusable manifest-driven deployments.
 Python is the application language; the standards also select OpenCV/YOLO,
 RTSP/ONVIF discovery, Docker packaging, and the target platform families.
-The shared [vision container baseline](apps/detect/container/README.md) packages
-the existing RTSP/OpenCV/Ultralytics detector. It runs independently of any future
-brain container or Android app. HVE Core is development tooling, not the
+The shared [vision container baseline](apps/vision/README.md) packages
+the existing RTSP/OpenCV/Ultralytics detector. It runs independently of the
+[optional rules brain](apps/brain/README.md) and Android app. HVE Core is development tooling, not the
 application runtime. Real camera access and model rights remain explicit gates.
+
+Python applications use `apps/<name>/{src,tests}` with one `pyproject.toml`,
+`uv.lock` and Dockerfile at the app root. Use each app's Docker `test` stage for
+Ruff and pytest; do not use the HVE tooling build for application validation.
+Local Compose files and synthetic cross-service tests live in `deploy/local`.
 
 The [Tiger Camera app](apps/tiger-camera/README.md) is a scoped Kotlin exception
 for the Android camera source. It uses a CLI-only Gradle build and remains

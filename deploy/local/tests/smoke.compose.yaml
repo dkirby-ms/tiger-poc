@@ -1,0 +1,46 @@
+# Test-only: explicit file, no .env, no camera/model/secret mounts, no host ports.
+services:
+  vision:
+    image: tiger-vision:0.2.0
+    entrypoint: ["python", "/tests/test_integration.py", "serve"]
+    environment:
+      PYTHONPATH: /app
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    cpus: 2
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    pids_limit: 128
+    tmpfs: ["/app/runtime:size=67108864,mode=1777"]
+    volumes:
+      - ./test_integration.py:/tests/test_integration.py:ro
+    networks: [evidence]
+    logging:
+      driver: local
+      options: {max-size: "1m", max-file: "2"}
+  brain:
+    image: tiger-brain:0.1.0
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    cpus: 0.5
+    mem_limit: 128m
+    memswap_limit: 128m
+    pids_limit: 32
+    environment:
+      PYTHONPATH: /app
+      VISION_URL: http://vision:8080
+      STALE_SECONDS: "1"
+      POLL_SECONDS: "0.1"
+    networks: [evidence]
+    volumes:
+      - ./test_integration.py:/tests/test_integration.py:ro
+    logging:
+      driver: local
+      options: {max-size: "1m", max-file: "2"}
+networks:
+  evidence:
+    internal: true

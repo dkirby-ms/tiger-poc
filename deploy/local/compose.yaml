@@ -1,10 +1,10 @@
 name: tiger
 services:
   vision:
-    image: tiger-vision:0.1.0
+    image: tiger-vision:0.2.0
     platform: linux/amd64
     build:
-      context: ../../apps/detect
+      context: ../../apps/vision
       dockerfile: Dockerfile
     init: true
     read_only: true
@@ -16,7 +16,7 @@ services:
     stop_grace_period: 30s
     restart: "no"
     tmpfs:
-      - /tmp:size=268435456,mode=1777
+      - /app/runtime:size=268435456,mode=1777
     environment:
       RTSP_URL_FILE: /run/secrets/rtsp_url
       YOLO_MODEL: /models/model.pt

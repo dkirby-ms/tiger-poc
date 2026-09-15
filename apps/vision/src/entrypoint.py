@@ -1,4 +1,4 @@
-"""Guard container configuration before invoking the unchanged RTSP detector."""
+"""Guard container configuration before invoking the RTSP detector."""
 
 from __future__ import annotations
 
@@ -120,6 +120,7 @@ def main() -> int:
             import ultralytics
 
             import_module("rtsp_yolo")
+            import_module("observation_service")
             LOGGER.info(
                 "Runtime ready: OpenCV=%s YOLO=%s PyTorch=%s; camera/model not checked",
                 cv2.__version__, ultralytics.__version__, torch.__version__,
@@ -131,6 +132,13 @@ def main() -> int:
         # Reserve a unique output path before model/camera work; never truncate older runs.
         with config.output.open("x", encoding="utf-8"):
             pass
+        mode = os.environ.get("VISION_SERVICE", "false")
+        if mode not in {"true", "false"}:
+            raise ConfigurationError("VISION_SERVICE must be true or false.")
+        if mode == "true":
+            from observation_service import run_service
+
+            return run_service(config, rtsp_yolo, os.environ)
         return rtsp_yolo.run(config)
     except ConfigurationError as error:
         LOGGER.error("%s", error)

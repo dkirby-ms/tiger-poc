@@ -9,13 +9,13 @@
             android:accessibilityHeading="true" />
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="@string/description" android:paddingBottom="12dp" />
-        <SurfaceView android:id="@+id/preview" android:layout_width="match_parent"
-            android:layout_height="200dp" android:contentDescription="@string/preview_description" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="@string/lab_warning" android:paddingTop="12dp" />
-        <CheckBox android:id="@+id/labConsent" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:minHeight="48dp"
-            android:text="@string/lab_acknowledge" />
+        <FrameLayout android:layout_width="match_parent" android:layout_height="200dp"
+            android:background="#000000">
+            <org.tigerpoc.camera.AspectPreview android:id="@+id/preview"
+                android:layout_width="match_parent" android:layout_height="match_parent"
+                android:layout_gravity="center"
+                android:contentDescription="@string/preview_description" />
+        </FrameLayout>
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="@string/camera_label" android:labelFor="@id/lens" />
         <Spinner android:id="@+id/lens" android:layout_width="match_parent"
@@ -26,7 +26,7 @@
             android:layout_height="wrap_content" android:minHeight="48dp"
             android:enabled="false" android:text="@string/stop" />
         <TextView android:id="@+id/status" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:text="@string/stopped"
+            android:layout_height="wrap_content" android:text="@string/starting"
             android:accessibilityLiveRegion="polite" android:textIsSelectable="true" />
     </LinearLayout>
 </ScrollView>

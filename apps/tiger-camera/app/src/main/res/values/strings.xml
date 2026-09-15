@@ -1,9 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Tiger Camera</string>
-    <string name="description">Camera-only RTSP source\nH.264 | 640 x 480 | 5 fps | No audio</string>
-    <string name="lab_warning">Lab use only: video is unencrypted and accessible to devices on this network. Use an isolated Wi-Fi network, disable cellular/VPN, and keep sensitive scenes out of view.</string>
-    <string name="lab_acknowledge">I have permission to stream this scene on an isolated lab network.</string>
+    <string name="description">Starts streaming when opened. Video only.</string>
     <string name="camera_label">Camera lens</string>
     <string-array name="lenses">
         <item>Rear camera</item>
@@ -12,17 +10,19 @@
     <string name="start">Start streaming</string>
     <string name="stop">Stop streaming</string>
     <string name="stopped">Stopped. Camera is off.</string>
-    <string name="permission_needed">Camera permission is required. Grant permission, then tap Start again.</string>
-    <string name="permission_granted">Camera permission granted. Tap Start when ready.</string>
-    <string name="lab_needed">Acknowledge the isolated lab session before starting.</string>
-    <string name="network_needed">Connect to one isolated Wi-Fi network with a private IPv4 address. Disable cellular, VPN and other network connections.</string>
+    <string name="starting">Waiting for the visible preview before starting automatically.</string>
+    <string name="permission_request">Allow Android camera permission to start streaming automatically.</string>
+    <string name="permission_needed">Camera permission was not granted. Camera is off. Allow it in Android settings or tap Start to request again.</string>
+    <string name="network_needed">Camera is off. Connect to one isolated Wi-Fi network with a private IPv4 address. Disable cellular, VPN and other network connections, then tap Start.</string>
     <string name="preview_needed">Preview is not ready. Try Start again when the app is visible.</string>
     <string name="preparing">Preparing video-only stream</string>
-    <string name="listening">Streaming: %1$s\nClient: RTSP over TCP. Session ends after 10 minutes.</string>
+    <string name="listening">Streaming: %1$s\nVideo: %2$d x %3$d. Orientation locked until Stop.\nClient: RTSP over TCP. Session ends after 10 minutes.</string>
+    <string name="orientation_changed">Display orientation changed. Stream stopped. Position the phone, then tap Start again.</string>
+    <string name="cleanup_error">Camera shutdown failed. Start is disabled. Close the app and confirm the camera indicator is off before reopening.</string>
     <string name="unsupported">This camera could not prepare the required H.264 profile. Camera is off.</string>
     <string name="camera_error">Camera or encoder failed. Stream stopped; camera is off.</string>
     <string name="server_error">RTSP connection failed. Stream stopped; camera is off.</string>
     <string name="network_changed">Network changed. Stream stopped. Confirm the lab network before restarting.</string>
-    <string name="session_expired">Ten-minute session ended. Camera is off.</string>
+    <string name="session_expired">Stopped after the ten-minute session limit. Camera is off. Tap Start for another session.</string>
     <string name="preview_description">Live camera preview while streaming</string>
 </resources>

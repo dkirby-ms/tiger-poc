@@ -1,6 +1,6 @@
 [project]
 name = "tiger-vision-container"
-version = "0.1.0"
+version = "0.2.0"
 description = "CPU runtime packaging for the existing Tiger RTSP detector"
 requires-python = ">=3.14,<3.15"
 dependencies = [
@@ -34,7 +34,7 @@ torchvision = { index = "pytorch-cpu" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = [".", ".."]
+pythonpath = ["src"]
 
 [tool.ruff]
 target-version = "py314"

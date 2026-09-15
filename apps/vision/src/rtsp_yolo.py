@@ -3,7 +3,7 @@
 
 Usage:
     RTSP_URL='rtsp://user:password@192.168.2.102:554/stream' \
-        uv run --project apps/detect apps/detect/rtsp_yolo.py --model best.pt
+        uv run --project apps/vision apps/vision/src/rtsp_yolo.py --model best.pt
 """
 
 from __future__ import annotations
@@ -13,6 +13,8 @@ import json
 import logging
 import os
 import sys
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -23,7 +25,7 @@ from ultralytics.engine.results import Results
 EXIT_SUCCESS = 0
 EXIT_FAILURE = 1
 EXIT_ERROR = 2
-APP_DIR = Path(__file__).resolve().parent
+APP_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_MODEL = APP_DIR / "yolo26n.pt"
 DEFAULT_OUTPUT = APP_DIR / "detections.jsonl"
 DEFAULT_RTSP_URL = (
@@ -117,23 +119,27 @@ def extract_detections(result: Results) -> list[dict[str, object]]:
     return detections
 
 
-def run(args: argparse.Namespace) -> int:
+def run(
+    args: argparse.Namespace,
+    observer: Callable | None = None,
+    capture_factory: Callable | None = None,
+) -> int:
     """Read the RTSP stream, run inference, and write detection records."""
     validate_arguments(args)
     model = YOLO(args.model)
-    capture = cv2.VideoCapture(args.rtsp_url)
+    capture = (capture_factory or cv2.VideoCapture)(args.rtsp_url)
     if not capture.isOpened():
         capture.release()
         raise ConnectionError(
             "Could not open the RTSP stream. Check its path, credentials, and port."
         )
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
     frame_number = 0
     processed_frames = 0
     logger.info("Reading camera %s; writing detections to %s", args.camera_id, args.output)
 
     try:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
         with args.output.open("w", encoding="utf-8") as output_file:
             while args.max_frames == 0 or processed_frames < args.max_frames:
                 success, frame = capture.read()
@@ -144,6 +150,8 @@ def run(args: argparse.Namespace) -> int:
                 if frame_number % args.frame_stride != 0:
                     continue
 
+                captured_at = datetime.now(UTC).isoformat()
+                captured_mono = time.monotonic()
                 result = model.predict(
                     source=frame,
                     conf=args.confidence,
@@ -158,6 +166,8 @@ def run(args: argparse.Namespace) -> int:
                 json.dump(record, output_file, separators=(",", ":"))
                 output_file.write("\n")
                 output_file.flush()
+                if observer is not None:
+                    observer(record, frame, captured_at, captured_mono)
                 processed_frames += 1
                 logger.info(
                     "Frame %d: %d detection(s)",

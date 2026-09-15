@@ -1,0 +1,11 @@
+**
+!Dockerfile
+!pyproject.toml
+!uv.lock
+!src/
+!src/rtsp_yolo.py
+!src/entrypoint.py
+!src/package_detector.py
+!src/observation_service.py
+!tests/
+!tests/*.py
