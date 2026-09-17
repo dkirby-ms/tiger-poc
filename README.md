@@ -80,7 +80,12 @@ Paths are manifest-relative. Use distinct outputs and source/subject IDs per wor
 ## Fabric Setup
 
 For a new workspace on supported capacity, use the [Fabric bootstrap](infra/fabric/README.md).
-`plan` is offline; `apply` provisions items but does not start publishers or twin jobs.
+`plan` is offline. `apply` provisions items and attempts ordered twin mapping
+initialization, but live execution is currently blocked by Fabric's
+`InvalidJobType` rejection of `ExecuteOperations`; see the
+[bootstrap guide](infra/fabric/README.md#optional-job-api).
+Use `--definitions-only` for provisioning without mappings. Keep the checkpoint;
+do not repeat the rejected job type unchanged. Publishers are configured separately.
 Digital twin builder requires preview access. Existing deployments need migration below.
 
 For manual setup, create an Eventhouse/KQL database and execute each complete command
@@ -148,11 +153,18 @@ Check [relay options](apps/detect/tiger_perception/fabric.py) with `--help`.
 
 ### Dashboard
 
-Back up an existing dashboard, then use **Manage > Replace with file** to import the
-[dashboard template](apps/fabric/dashboards/fabric_realtime_dashboard.json).
-Edit the existing **Configure Tiger KQL Database** data source to your Query URI and
-database (bootstrap default: `tiger_events_db`). Keep its internal ID. Verify all ten
-tiles across both pages before saving or enabling refresh. No credentials belong in the JSON.
+`apply` generates `data/fabric/<workspace-id>.dashboard.json` with the deployed
+database connection already bound to all ten queries. With `--state`, the output
+is named `<checkpoint-stem>.dashboard.json` beside that checkpoint. Use
+`--definitions-only` to provision and export without executing twin flows.
+
+Back up an existing dashboard, then use **Manage > Replace with file** to import
+the generated file, not the generic
+[source template](apps/fabric/dashboards/fabric_realtime_dashboard.json).
+Verify all ten tiles across both pages before saving or enabling refresh.
+The source template stays portable; generated files contain deployment identifiers,
+not credentials. For manual setup, edit the template's existing data source and
+preserve its ID; adding another source does not rebind the queries.
 
 Use [sample KQL](apps/fabric/kql/03_sample_queries.kql) for event inspection or
 [Power BI DirectQuery](apps/fabric/dashboards/powerbi_directquery_kql.m) for occupancy.

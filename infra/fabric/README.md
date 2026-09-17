@@ -11,10 +11,10 @@ It does not create a workspace, capacity, credentials, or role assignments.
 For local detection, publishing, and dashboards, use the [root guide](../../README.md).
 
 > [!IMPORTANT]
-> `apply` creates definitions and reference data, not running publishers or twin
-> instances. Earlier presence definitions were tested through staged imports;
-> a fresh complete import, QR integration, ingestion, and mapping execution still
-> need live validation. Provisioning and flow execution consume Fabric capacity.
+> Automatic initialization is currently blocked in the tested workspace: on
+> 2026-09-17, Fabric rejected `ExecuteOperations` with HTTP 400 `InvalidJobType`.
+> Use `--definitions-only` for provisioning without mappings. This is not complete
+> twin initialization. Provisioning and flow execution consume capacity.
 
 ## Prerequisites
 
@@ -41,6 +41,21 @@ dependencies. `status` requires an existing checkpoint and reports inventory and
 raw-event freshness, not end-to-end health. [config.json](config.json) controls
 names, artifact paths, presence types, and OneLake latency; use `--config` to override.
 
+With a supported execution job type, `apply` waits for OneLake source tables,
+runs reference mappings, relationships,
+then event history, and waits for completion after each stage. Repeat the same
+command after an interruption: completed stages are skipped and recorded active
+jobs are polled, not resubmitted. `--timeout` bounds each wait (default: 1800 seconds).
+Use `--definitions-only` to provision without running mappings.
+
+After provisioning, `apply` generates `<checkpoint-stem>.dashboard.json` beside
+the checkpoint, including when `--definitions-only` is used. The default output
+is `data/fabric/<workspace-id>.dashboard.json`. It reads the deployed database's
+query endpoint and fills in the workspace and database IDs while preserving all
+query bindings. The shared template remains unchanged. Repeating `apply`
+regenerates the file; back up any local customizations first. Import this generated
+file into Fabric; the command does not create or replace a cloud dashboard.
+
 ### WSL With An Approved Package Feed
 
 When required, configure the approved feed before running `uv`:
@@ -58,36 +73,44 @@ not Azure CLI, `uv`, or the OneLake SDK.
 
 ## Publish And Initialize
 
-With the default `tiger` prefix:
+The automatic sequence below requires resolving the job-type blocker above.
+With a supported execution job type, leave `apply` running while configuring
+publishing in another terminal. With the default `tiger` prefix:
 
 1. Open `tiger_ingest` > `CameraEvents` and privately configure the
    [publishers](../../README.md#publish-events) with its Custom App credentials.
    Azure CLI login does not authorize publishing to that source.
 2. Verify destination `ProcessEventsRaw` in `tiger_events_db` preserves top-level
    JSON fields. Start publishing and check the [sample queries](../../apps/fabric/kql/03_sample_queries.kql).
-3. Wait for both `ConfirmedPresenceEvents` and `BoxIdentificationEvents` to be
-   readable through `tiger_reference` OneLake shortcuts. Empty tables may not be
-   ready; publish valid events and retry incomplete setup with the same checkpoint.
+3. `apply` waits for `ConfirmedPresenceEvents` and `BoxIdentificationEvents` through
+   `tiger_reference` OneLake shortcuts and runs the three flows automatically.
+   Empty tables may not be ready; publish valid events for both scenarios. On a
+   readiness timeout, fix ingestion and repeat `apply` with the same checkpoint.
    Do not insert synthetic occupancy merely to initialize a table.
-4. Run `tiger_reference_flow`, then `tiger_relationships_flow`, waiting after each.
-   Verify 1 plant, 3 cells, 5 positions, 3 cases, and 3 relationship types.
-   Run `tiger_timeseries_flow` and verify timestamps and mapped history before scheduling.
+4. After setup completes, verify 1 plant, 3 cells, 5 positions, 3 cases, and
+   3 relationship types, then inspect mapped event timestamps.
 5. Import and configure the [dashboard](../../README.md#dashboard); bootstrap does not deploy it.
 
 ## Optional Job API
 
-Prefer portal execution until a supported Digital twin builder job type is
-confirmed for your tenant. `run` and `schedule` are unverified adapters; do not
-guess a job type. Once confirmed:
+The orchestration code sequences flows without separate commands, but public
+execution is not yet working in the tested workspace. After a supported job type
+is confirmed, these advanced commands refresh mappings or schedule history updates:
 
 ```bash
 uv run infra/fabric/deploy.py run --workspace "<workspace-id>" \
-  --job-type "<confirmed-job-type>" --phase reference
-uv run infra/fabric/deploy.py run --workspace "<workspace-id>" \
-  --job-type "<confirmed-job-type>" --phase events
+   --phase all
 uv run infra/fabric/deploy.py schedule --workspace "<workspace-id>" \
-  --job-type "<confirmed-job-type>" --interval 15 --until "<future-UTC-timestamp>"
+   --interval 15 --until "<future-UTC-timestamp>"
 ```
+
+The current default, `ExecuteOperations`, comes from
+[Microsoft's monitoring-log reference](https://learn.microsoft.com/fabric/fundamentals/item-job-event-logs#supported-item-and-job-types),
+not an execution contract. The live API rejected it as `InvalidJobType`;
+monitoring job names do not establish public execution support. Do not retry it
+unchanged or guess replacement names. A supported public execution contract must
+be confirmed before this workflow can complete. `--job-type` remains an override
+for a confirmed type. Scheduling also needs tenant validation.
 
 Scheduling requires successful API-managed reference and event runs, a future
 expiration, and a 15-720 minute interval. Portal runs do not satisfy those
@@ -97,8 +120,9 @@ inspect Fabric after an interrupted schedule request before retrying.
 ## State And Recovery
 
 Keep `data/fabric/<workspace-id>.json` across retries; `--state` overrides its path.
-Run one deployment process per workspace. Repeating `apply` with unchanged artifacts
-and state skips completed work. Reference loads replace owned reference tables,
+Run one deployment process per workspace; do not overlap setup with portal runs.
+Repeating `apply` with unchanged artifacts and state skips completed work.
+Reference loads replace owned reference tables,
 not event history.
 
 Changed fingerprints, name collisions, and missing owned items stop deployment.
@@ -106,6 +130,14 @@ There is no adoption, automatic migration, rollback, or deletion. Inspect Fabric
 after timeouts before retrying: creation may have completed remotely. Never discard
 state to bypass a conflict. Use the [migration steps](../../README.md#existing-deployments)
 for existing deployments; use a separate prefix and state file for a replacement model.
+
+If a job submission's response is lost, setup stops rather than risking duplicate
+execution. Inspect Fabric job history and reconcile the recorded `Submitting`
+stage before retrying. Keep the checkpoint; do not reset it to bypass this guard.
+
+Explicit HTTP submission rejections are recorded as `Rejected`, not `Submitting`.
+Fix their cause before retrying. Error output includes the service error code and
+request ID when available; diagnostics retain the full private response.
 
 ### Import Failure Diagnostics
 

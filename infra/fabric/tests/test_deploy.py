@@ -800,10 +800,426 @@ def test_given_kql_connection_failure_when_configuring_then_checkpoint_is_not_co
     assert "private transport details" not in str(failure.value)
 
 
-def test_given_unconfirmed_job_type_when_run_requested_then_fails_before_authentication() -> (
+def test_given_invalid_job_type_when_run_requested_then_fails_before_authentication() -> (
     None
 ):
-    assert main(["run"]) == 2
+    assert main(["run", "--job-type", "../invalid"]) == 2
+
+
+def test_given_default_cli_when_parsed_then_all_mapping_stages_are_selected() -> None:
+    args = create_parser().parse_args(["apply"])
+    assert args.definitions_only is False
+    assert args.phase == "all"
+    assert main(["run", "--definitions-only"]) == 2
+
+
+@pytest.mark.parametrize("definitions_only", [False, True])
+def test_given_apply_cli_when_invoked_then_initialization_is_default(
+    tmp_path, monkeypatch, definitions_only
+) -> None:
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    from infra.fabric import deploy
+
+    calls = []
+    filesystem = object()
+
+    class FakeDeployment:
+        def __init__(self, *args):
+            pass
+
+        def apply(self, upload):
+            calls.append("apply")
+
+        def export_dashboard(self):
+            calls.append("dashboard")
+
+        def initialize(self, job_type, wait_for_sources):
+            calls.append(job_type)
+            wait_for_sources("timeseries")
+
+        def wait_for_sources(self, actual_filesystem, group):
+            assert actual_filesystem is filesystem
+            calls.append(group)
+
+    monkeypatch.setattr(deploy, "Deployment", FakeDeployment)
+    monkeypatch.setattr(
+        deploy.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            stdout=json.dumps(
+                {
+                    "user": {"type": "user"},
+                    "tenantId": "00000000-0000-4000-8000-000000000002",
+                }
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        deploy, "AzureCliCredential", lambda **kwargs: nullcontext(object())
+    )
+    monkeypatch.setattr(
+        deploy, "create_http_client", lambda **kwargs: nullcontext(object())
+    )
+    monkeypatch.setattr(
+        deploy,
+        "DataLakeServiceClient",
+        lambda *args, **kwargs: nullcontext(
+            SimpleNamespace(get_file_system_client=lambda workspace: filesystem)
+        ),
+    )
+    arguments = [
+        "apply",
+        "--workspace",
+        "00000000-0000-4000-8000-000000000001",
+        "--state",
+        str(tmp_path / "state.json"),
+    ]
+    if definitions_only:
+        arguments.append("--definitions-only")
+
+    assert main(arguments) == 0
+    assert calls == (
+        ["apply", "dashboard"]
+        if definitions_only
+        else ["apply", "dashboard", "ExecuteOperations", "timeseries"]
+    )
+
+
+@pytest.mark.parametrize("suffix", ["001", "002"])
+def test_given_deployment_when_dashboard_exported_then_bindings_are_configured(
+    tmp_path, suffix
+) -> None:
+    config = load_config(ROOT / "infra/fabric/config.json")
+    template = (
+        Path(config["artifactRoot"]) / "dashboards/fabric_realtime_dashboard.json"
+    )
+    original = template.read_bytes()
+    workspace = "00000000-0000-4000-8000-000000000" + suffix
+    database_id = "00000000-0000-4000-8000-000000001" + suffix
+    metadata = {
+        "displayName": "example_db",
+        "properties": {
+            "queryServiceUri": "https://example.kusto.fabric.microsoft.com/"
+        },
+    }
+    deployment = Deployment(
+        make_client([httpx.Response(200, json=metadata)]),
+        config,
+        workspace,
+        tmp_path / "custom.json",
+    )
+    deployment.state["items"]["database"] = database_id
+
+    output = deployment.export_dashboard()
+
+    rendered = json.loads(output.read_text())
+    source = rendered["dataSources"][0]
+    assert output == tmp_path / "custom.dashboard.json"
+    assert source["workspace"] == workspace
+    assert source["database"] == source["databaseArtifactId"] == database_id
+    assert source["clusterUri"] == "https://example.kusto.fabric.microsoft.com"
+    assert source["name"] == "example_db"
+    assert source["kind"] == "kusto-trident"
+    assert all(
+        query["dataSource"]["dataSourceId"] == source["id"]
+        for query in rendered["queries"]
+    )
+    assert template.read_bytes() == original
+    expected = json.loads(original)
+    expected["dataSources"] = rendered["dataSources"]
+    assert rendered == expected
+
+
+@pytest.mark.parametrize("broken_binding", [False, True])
+def test_given_invalid_dashboard_inputs_when_exported_then_no_file_is_written(
+    tmp_path, broken_binding
+) -> None:
+    config = load_config(ROOT / "infra/fabric/config.json")
+    deployment = Deployment(
+        make_client(
+            [
+                httpx.Response(
+                    200,
+                    json={
+                        "displayName": "example_db",
+                        "properties": {
+                            "queryServiceUri": (
+                                "https://example.kusto.fabric.microsoft.com"
+                                if broken_binding
+                                else "https://example.invalid"
+                            )
+                        },
+                    },
+                )
+            ]
+        ),
+        config,
+        "00000000-0000-4000-8000-000000000001",
+        tmp_path / "state.json",
+    )
+    deployment.state["items"]["database"] = "database"
+    if broken_binding:
+        template = json.loads(
+            (
+                Path(config["artifactRoot"])
+                / "dashboards/fabric_realtime_dashboard.json"
+            ).read_text()
+        )
+        template["queries"][0]["dataSource"]["dataSourceId"] = "unbound"
+        (tmp_path / "dashboards").mkdir()
+        (tmp_path / "dashboards/fabric_realtime_dashboard.json").write_text(
+            json.dumps(template)
+        )
+        config["artifactRoot"] = str(tmp_path)
+
+    with pytest.raises(DeploymentError, match="template data source|unexpected KQL"):
+        deployment.export_dashboard()
+
+    assert not (tmp_path / "state.dashboard.json").exists()
+
+
+def test_given_partial_initialization_when_resumed_then_completed_stages_are_skipped(
+    tmp_path, monkeypatch
+) -> None:
+    from infra.fabric.deploy import ITEMS
+
+    deployment = Deployment(
+        make_client([]),
+        load_config(ROOT / "infra/fabric/config.json"),
+        "00000000-0000-4000-8000-000000000001",
+        tmp_path / "state.json",
+    )
+    deployment.state["items"] = {key: key for key in ITEMS}
+    monkeypatch.setattr(deployment, "preflight", lambda: None)
+    calls = []
+
+    def run_flow(group, job_type):
+        calls.append((group, job_type))
+        if group == "relationships" and len(calls) == 2:
+            raise DeploymentError("temporary failure")
+        deployment.state.setdefault("jobs", {})[group] = {"status": "Completed"}
+        deployment.save()
+
+    monkeypatch.setattr(deployment, "run_flow", run_flow)
+    readiness_checks = []
+    with pytest.raises(DeploymentError, match="temporary failure"):
+        deployment.initialize("ExecuteOperations", readiness_checks.append)
+    assert "referenceInitialized" not in deployment.state
+    deployment.initialize("ExecuteOperations", readiness_checks.append)
+    assert [group for group, _ in calls] == [
+        "reference",
+        "relationships",
+        "relationships",
+        "timeseries",
+    ]
+    assert all(job_type == "ExecuteOperations" for _, job_type in calls)
+    assert deployment.state["referenceInitialized"] is True
+    deployment.initialize("ExecuteOperations", readiness_checks.append)
+    assert len(calls) == 4
+    assert readiness_checks == [
+        "reference",
+        "relationships",
+        "relationships",
+        "timeseries",
+    ]
+
+
+def test_given_delayed_delta_logs_when_waiting_then_both_history_tables_are_checked(
+    tmp_path,
+) -> None:
+    from types import SimpleNamespace
+
+    from azure.core.exceptions import ResourceNotFoundError
+
+    calls = []
+
+    def get_paths(*, path, recursive):
+        calls.append(path)
+        assert recursive is False
+        if len(calls) == 1:
+            raise ResourceNotFoundError("not ready")
+        return [
+            SimpleNamespace(
+                name=path + "/00000000000000000000.json", is_directory=False
+            )
+        ]
+
+    deployment = Deployment(
+        make_client([]),
+        load_config(ROOT / "infra/fabric/config.json"),
+        "00000000-0000-4000-8000-000000000001",
+        tmp_path / "state.json",
+    )
+    deployment.state["items"]["source"] = "source"
+    deployment.wait_for_sources(SimpleNamespace(get_paths=get_paths), "timeseries")
+    assert calls == [
+        "source/Tables/BoxIdentificationEvents/_delta_log",
+        "source/Tables/ConfirmedPresenceEvents/_delta_log",
+        "source/Tables/BoxIdentificationEvents/_delta_log",
+    ]
+
+
+def test_given_missing_delta_logs_when_timeout_then_no_mapping_job_is_submitted(
+    tmp_path,
+) -> None:
+    from types import SimpleNamespace
+
+    client = make_client([])
+    client.timeout = 1
+    deployment = Deployment(
+        client,
+        load_config(ROOT / "infra/fabric/config.json"),
+        "00000000-0000-4000-8000-000000000001",
+        tmp_path / "state.json",
+    )
+    deployment.state["items"]["source"] = "source"
+    with pytest.raises(DeploymentError, match="No mapping was submitted"):
+        deployment.wait_for_sources(
+            SimpleNamespace(get_paths=lambda **kwargs: []), "timeseries"
+        )
+    assert "jobs" not in deployment.state
+
+
+def test_given_ambiguous_submission_when_resumed_then_no_duplicate_job_is_sent(
+    tmp_path,
+) -> None:
+    deployment = Deployment(
+        make_client([]),
+        load_config(ROOT / "infra/fabric/config.json"),
+        "00000000-0000-4000-8000-000000000001",
+        tmp_path / "state.json",
+    )
+    deployment.state["jobs"] = {
+        "reference": {"status": "Submitting", "jobType": "ExecuteOperations"}
+    }
+    with pytest.raises(DeploymentError, match="unknown outcome"):
+        deployment.run_flow("reference", "ExecuteOperations")
+
+
+def test_given_ready_sources_when_initialized_then_rest_jobs_complete_in_order(
+    tmp_path, monkeypatch
+) -> None:
+    from infra.fabric.deploy import ITEMS
+
+    requests = []
+
+    def respond(request):
+        requests.append((request.method, request.url.path))
+        if request.method == "POST":
+            return httpx.Response(202, headers={"Location": str(request.url) + "/one"})
+        return httpx.Response(200, json={"status": "Completed"})
+
+    deployment = Deployment(
+        FabricClient(
+            httpx.Client(transport=httpx.MockTransport(respond)),
+            lambda scope: "test",
+            pause=lambda seconds: None,
+        ),
+        load_config(ROOT / "infra/fabric/config.json"),
+        "00000000-0000-4000-8000-000000000001",
+        tmp_path / "state.json",
+    )
+    deployment.state["items"] = {key: key for key in ITEMS}
+    monkeypatch.setattr(deployment, "preflight", lambda: None)
+
+    deployment.initialize("ExecuteOperations", lambda group: None)
+    deployment.initialize(
+        "ExecuteOperations", lambda group: pytest.fail("Unexpected readiness check")
+    )
+
+    assert [method for method, _ in requests] == ["POST", "GET"] * 3
+    assert [
+        path.split("/items/")[1] for method, path in requests if method == "POST"
+    ] == [
+        f"flow_{group}/jobs/ExecuteOperations/instances"
+        for group in ("reference", "relationships", "timeseries")
+    ]
+    saved = json.loads((tmp_path / "state.json").read_text())
+    assert saved["referenceInitialized"] is True
+    assert all(job["status"] == "Completed" for job in saved["jobs"].values())
+
+
+def test_given_active_mapping_when_resumed_then_existing_job_is_polled(
+    tmp_path,
+) -> None:
+    requests = []
+
+    def respond(request):
+        requests.append(request.method)
+        return httpx.Response(200, json={"status": "Completed"})
+
+    deployment = Deployment(
+        FabricClient(
+            httpx.Client(transport=httpx.MockTransport(respond)),
+            lambda scope: "test",
+            pause=lambda seconds: None,
+        ),
+        load_config(ROOT / "infra/fabric/config.json"),
+        "00000000-0000-4000-8000-000000000001",
+        tmp_path / "state.json",
+    )
+    deployment.state["jobs"] = {
+        "reference": {
+            "status": "InProgress",
+            "jobType": "ExecuteOperations",
+            "location": "https://api.fabric.microsoft.com/v1/workspaces/test/items/flow/jobs/instances/one",
+        }
+    }
+
+    deployment.run_flow("reference", "ExecuteOperations")
+
+    assert requests == ["GET"]
+    assert deployment.state["jobs"]["reference"]["status"] == "Completed"
+
+
+@pytest.mark.parametrize("status_code", [400, 401, 403, 404, 405, 422, 500, 503])
+def test_given_submission_error_when_recorded_then_only_rejections_are_retryable(
+    tmp_path, status_code
+) -> None:
+    deployment = Deployment(
+        make_client([httpx.Response(status_code, json={"errorCode": "TestFailure"})]),
+        load_config(ROOT / "infra/fabric/config.json"),
+        "00000000-0000-4000-8000-000000000001",
+        tmp_path / "state.json",
+    )
+    deployment.state["items"]["flow_reference"] = "flow"
+
+    with pytest.raises(DeploymentError, match=f"HTTP {status_code}"):
+        deployment.run_flow("reference", "ExecuteOperations")
+
+    saved = json.loads((tmp_path / "state.json").read_text())
+    assert saved["jobs"]["reference"]["status"] == (
+        "Rejected" if status_code < 500 else "Submitting"
+    )
+
+
+def test_given_job_type_rejection_when_reported_then_code_and_body_request_id_are_visible() -> (
+    None
+):
+    request_id = "e33641dc-04ed-40aa-8678-39cf2da8f57b"
+    client = make_client(
+        [
+            httpx.Response(
+                400,
+                json={
+                    "errorCode": "InvalidJobType",
+                    "requestId": request_id,
+                    "message": "private service details",
+                },
+            )
+        ]
+    )
+
+    with pytest.raises(DeploymentError, match="InvalidJobType") as failure:
+        client.request(
+            "POST", "workspaces/test/items/flow/jobs/ExecuteOperations/instances"
+        )
+
+    assert request_id in str(failure.value)
+    assert "private service details" not in str(failure.value)
+    assert "Confirm a supported execution job type" in str(failure.value)
 
 
 def test_given_deduped_job_when_polled_then_not_reported_as_completed(tmp_path) -> None:
