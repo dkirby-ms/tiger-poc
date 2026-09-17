@@ -461,6 +461,13 @@ class Deployment:
                 f"with (IsEnabled=true, Backfill=true, TargetLatencyInMinutes={self.config['targetLatencyMinutes']})"
             ),
         )
+        self.once(
+            "mirroring_qr",
+            lambda: self.kql(
+                ".alter-merge table BoxIdentificationEvents policy mirroring dataformat=parquet "
+                f"with (IsEnabled=true, Backfill=true, TargetLatencyInMinutes={self.config['targetLatencyMinutes']})"
+            ),
+        )
         source = self.create("source")
         backing = self.create("backing")
         self.seed(upload)
@@ -477,6 +484,24 @@ class Deployment:
                             "workspaceId": self.workspace,
                             "itemId": database,
                             "path": "Tables/ConfirmedPresenceEvents",
+                        }
+                    },
+                },
+            ),
+        )
+        self.once(
+            "shortcut_qr",
+            lambda: self.client.request(
+                "POST",
+                f"workspaces/{self.workspace}/items/{source}/shortcuts?shortcutConflictPolicy=CreateOrOverwrite",
+                json={
+                    "path": "Tables",
+                    "name": "BoxIdentificationEvents",
+                    "target": {
+                        "oneLake": {
+                            "workspaceId": self.workspace,
+                            "itemId": database,
+                            "path": "Tables/BoxIdentificationEvents",
                         }
                     },
                 },

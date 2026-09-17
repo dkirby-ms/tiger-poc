@@ -1,10 +1,18 @@
 """Camera-free checks of image usability and normalized provider results."""
 
+from pathlib import Path
 from types import SimpleNamespace
 
+import cv2
 import numpy as np
 import pytest
-from tiger_perception.adapters import YoloProvider, frame_quality, normalize_detections
+from tiger_perception.adapters import (
+    QrProvider,
+    YoloProvider,
+    decode_qr_codes,
+    frame_quality,
+    normalize_detections,
+)
 from tiger_perception.config import Capture, Perception
 from tiger_perception.contracts import Frame
 
@@ -39,6 +47,52 @@ def test_given_successful_empty_result_when_normalized_then_empty_list():
     result = SimpleNamespace(boxes=SimpleNamespace(xyxyn=Array([]), conf=Array([]), cls=Array([])))
 
     assert normalize_detections(result) == []
+
+
+def test_given_generated_case_label_when_qr_codes_decoded_then_return_case_id():
+    payload = cv2.imread(str(Path(__file__).parents[3] / "docs/inventory-labels/case-001.png"))
+
+    assert decode_qr_codes(payload) == ["CASE-001"]
+
+
+@pytest.mark.parametrize("case_id", ["CASE-001", "CASE-002", "CASE-003", "https://example.com"])
+def test_given_qr_label_when_primary_provider_runs_then_decode_only_case_ids(case_id):
+    encoded = cv2.QRCodeEncoder_create().encode(case_id)
+    image = cv2.resize(np.pad(encoded, 4, constant_values=255), None, fx=8, fy=8,
+                       interpolation=cv2.INTER_NEAREST)
+    frame = Frame("cell-c-camera-01", 1, "2026-09-17T12:00:00+00:00", image)
+
+    inference = QrProvider().infer(frame)
+
+    assert inference.succeeded
+    assert inference.qr_codes == ([case_id] if case_id.startswith("CASE-") else [])
+    for detection in inference.detections:
+        assert detection.case_id == case_id
+        assert detection.label == "qr"
+        assert all(0 <= value <= 1 for value in detection.bounding_box.values())
+
+
+@pytest.mark.parametrize("payload,succeeded", [(None, False), (np.full((200, 200), 255, dtype=np.uint8), True)])
+def test_given_missing_or_blank_frame_when_qr_inferred_then_distinguish_failure(payload, succeeded):
+    frame = Frame("cell-c-camera-01", 1, "2026-09-17T12:00:00+00:00", payload)
+
+    inference = QrProvider().infer(frame)
+
+    assert inference.succeeded is succeeded
+    assert inference.qr_codes == []
+
+
+def test_given_three_labels_in_one_frame_when_qr_inferred_then_decode_all():
+    tiles = []
+    for case_id in ("CASE-001", "CASE-002", "CASE-003"):
+        encoded = cv2.QRCodeEncoder_create().encode(case_id)
+        tiles.append(cv2.resize(np.pad(encoded, 8, constant_values=255), (300, 300),
+                                interpolation=cv2.INTER_NEAREST))
+    image = np.concatenate(tiles, axis=1)
+
+    inference = QrProvider().infer(Frame("cell-c-camera-01", 1, "2026-09-17T12:00:00+00:00", image))
+
+    assert sorted(inference.qr_codes) == ["CASE-001", "CASE-002", "CASE-003"]
 
 
 @pytest.mark.parametrize("payload", [None, np.zeros((8, 8, 3), dtype=np.uint8),

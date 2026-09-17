@@ -6,7 +6,6 @@ import re
 from pathlib import Path
 
 import yaml
-
 from tiger_perception.sinks import SCHEMA
 
 DETECT = Path(__file__).resolve().parents[1]
@@ -125,6 +124,45 @@ def test_given_twin_binding_when_read_then_only_confirmed_latest_state_is_used()
     assert binding["mappingRule"]["propertyUpdates"]["isOccupied"] == "isOccupied"
 
 
+def test_given_qr_assets_when_read_then_case_identity_is_separate_from_occupancy() -> None:
+    script = (FABRIC / "kql/02_update_policy.kql").read_text()
+    extraction = script.split("function ExtractBoxIdentifications()", 1)[1].split("\n}", 1)[0]
+    assert 'observationType == "BoxIdentified"' in extraction
+    assert 'gettype(value) == "string" and unit == "identifier"' in extraction
+    assert 'subjectId matches regex @"^CASE-[0-9]{3}$"' in extraction
+    assert "tostring(value) == subjectId" in extraction
+    assert 'gettype(observation.positionId) == "string"' in extraction
+    assert "isnotempty(plantId) and isnotempty(positionId)" in extraction
+    assert "isOccupied" not in extraction
+    latest = script.split("LastCaseIdentification on table BoxIdentificationEvents", 1)[1]
+    assert "arg_max(capturedAt, *) by plantId, subjectId" in latest
+    assert "| where" not in latest
+    ontology = json.loads((FABRIC / "digital_twin/ontology_definition.json").read_text())
+    binding = next(item for item in ontology["telemetryBindings"] if item["targetEntityType"] == "Case")
+    assert binding["historyStream"] == "BoxIdentificationEvents"
+    assert binding["sourceStream"] == "LastCaseIdentification"
+    assert "isOccupied" not in binding["mappingRule"]["propertyUpdates"]
+    workload = yaml.safe_load((DETECT / "manifests/cell-c-qr.yaml").read_text())
+    instances = json.loads((FABRIC / "digital_twin/twin_instances.json").read_text())
+    position = next(item for item in instances["monitoredPositions"] if item["positionId"] == workload["spec"]["source"]["subjectId"])
+    assert position["monitoredSourceId"] == workload["spec"]["source"]["id"]
+    assert {item["caseId"] for item in instances["cases"]} == {"CASE-001", "CASE-002", "CASE-003"}
+
+
+def test_given_qr_dashboard_when_read_then_counts_history_not_inventory() -> None:
+    dashboard = json.loads((FABRIC / "dashboards/fabric_realtime_dashboard.json").read_text())
+    page = next(page for page in dashboard["pages"] if page["name"] == "QR Case Identifications")
+    tiles = [tile for tile in dashboard["tiles"] if tile["pageId"] == page["id"]]
+    assert len(tiles) == 3
+    queries = {query["id"]: query for query in dashboard["queries"]}
+    latest = next(queries[tile["queryRef"]["queryId"]] for tile in tiles if tile["title"].startswith("Last Case"))
+    assert latest["usedVariables"] == []
+    assert "LastCaseIdentification" in latest["text"]
+    history = next(queries[tile["queryRef"]["queryId"]] for tile in tiles if tile["title"] == "Case Identification History")
+    assert "arg_max(publishedAt, *) by eventId" in history["text"]
+    assert history["usedVariables"] == ["_startTime", "_endTime"]
+
+
 def test_given_dashboard_when_read_then_queries_use_current_contract() -> None:
     """Prevent legacy table names and invented ingestion timestamps from returning."""
     dashboard = json.loads((FABRIC / "dashboards/fabric_realtime_dashboard.json").read_text())
@@ -155,8 +193,8 @@ def test_given_dashboard_template_when_shared_then_connection_is_unconfigured() 
         "clusterUri": "https://example.invalid", "database": "REPLACE_WITH_KQL_DATABASE",
     }
     queries = {query["id"]: query for query in dashboard["queries"]}
-    assert len(queries) == len(dashboard["queries"]) == len(dashboard["tiles"]) == 7
-    assert len({tile["id"] for tile in dashboard["tiles"]}) == 7
+    assert len(queries) == len(dashboard["queries"]) == len(dashboard["tiles"]) == 10
+    assert len({tile["id"] for tile in dashboard["tiles"]}) == 10
     for tile in dashboard["tiles"]:
         assert tile["pageId"] in {page["id"] for page in dashboard["pages"]}
         query = queries[tile["queryRef"]["queryId"]]

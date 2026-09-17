@@ -55,7 +55,9 @@ def test_given_schema_when_submitted_then_only_fabric_supported_commands_are_use
     schema = database_schema(config)
     command_lines = re.findall(r"^\..*$", schema, re.MULTILINE)
 
-    assert len(command_lines) == 9
+    assert len(command_lines) == 14
+    assert ".create-or-alter materialized-view LastCaseIdentification" in schema
+    assert 'gettype(value) == "string" and unit == "identifier"' in schema
     assert all(
         re.match(
             r"\.(create-merge table |create-or-alter function |"
@@ -117,13 +119,19 @@ def test_given_canonical_instances_when_reference_tables_rendered_then_metadata_
         ("Plants", "plants"),
         ("Cells", "cells"),
         ("MonitoredPositions", "monitoredPositions"),
+        ("Cases", "cases"),
     ):
         rows = list(csv.DictReader(io.StringIO(tables[table])))
         columns = set(rows[0]) - {"createdTimestamp"}
-        assert [{key: row[key] for key in sorted(columns)} for row in rows] == [
-            {key: instance[key] for key in sorted(columns)}
-            for instance in instances[collection]
-        ]
+        assert sorted(
+            [{key: row[key] for key in sorted(columns)} for row in rows], key=str
+        ) == sorted(
+            [
+                {key: instance[key] for key in sorted(columns)}
+                for instance in instances[collection]
+            ],
+            key=str,
+        )
 
 
 def make_client(responses: list[httpx.Response]) -> FabricClient:
@@ -452,7 +460,23 @@ def test_given_model_when_rendered_then_links_and_flow_groups_are_consistent() -
     )
 
     assert parts["definition.json"]["LakehouseId"] == "backing"
-    assert len(groups["reference"]) == 3
+    assert len(groups["reference"]) == 4
+    assert len(groups["timeseries"]) == 2
+    assert len(groups["relationships"]) == 3
+    assert parts["EntityTypes/10003.json"]["Name"] == "MonitoredPosition"
+    case_mapping = next(
+        part for part in mappings if part["DisplayName"] == "Case_timeseries"
+    )
+    assert (
+        case_mapping["SourceTableProperties"]["SourceTableName"]
+        == "BoxIdentificationEvents"
+    )
+    assert case_mapping["MappingOperationProperties"][
+        "TimeseriesEntityLinkProperties"
+    ] == {"EntityProperty": "caseId", "TimeseriesProperty": "subjectId"}
+    assert [item["Value"] for item in case_mapping["Filters"]["FilterOperations"]] == [
+        "BoxIdentified"
+    ]
     assert all(part["SourceTableProperties"]["ItemId"] == "source" for part in mappings)
     assert timeseries["MappingOperationProperties"][
         "TimeseriesEntityLinkProperties"
@@ -620,7 +644,18 @@ def test_given_empty_workspace_when_applied_twice_then_second_run_creates_nothin
     )
 
     assert len(items) == 9
-    assert len(uploads) == 3
+    assert len(uploads) == 4
+    assert "mirroring_qr" in deployment.state["completed"]
+    assert "shortcut_qr" in deployment.state["completed"]
+    shortcuts = [
+        json.loads(request.content)
+        for request in first_requests
+        if request.url.path.endswith("/shortcuts")
+    ]
+    assert {shortcut["name"] for shortcut in shortcuts} == {
+        "ConfirmedPresenceEvents",
+        "BoxIdentificationEvents",
+    }
     assert all(request.method == "GET" for request in requests)
     assert not any("/jobs/" in request.url.path for request in first_requests)
     policy_requests = [

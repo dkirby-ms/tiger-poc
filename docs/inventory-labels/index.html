@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inventory Case Labels</title>
+  <style>
+    @page { size: auto; margin: 12mm; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: white; color: black; font-family: "Courier New", monospace; }
+    main { width: 170mm; max-width: 100%; margin: 0 auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6mm; }
+    figure { margin: 0; padding: 3mm; border: 1px dashed #888; text-align: center; break-inside: avoid; }
+    img { display: block; width: 70mm; max-width: 100%; height: auto; aspect-ratio: 1; margin: 0 auto; image-rendering: pixelated; }
+    figcaption { margin-top: 2mm; font-size: 20pt; font-weight: bold; letter-spacing: 0; }
+    @media screen and (max-width: 480px) { main { grid-template-columns: 1fr; width: 82mm; } }
+  </style>
+</head>
+<body>
+  <main aria-label="Printable inventory case labels">
+    <figure>
+      <img src="case-001.png" alt="QR code encoding CASE-001" width="330" height="330">
+      <figcaption>CASE-001</figcaption>
+    </figure>
+    <figure>
+      <img src="case-002.png" alt="QR code encoding CASE-002" width="330" height="330">
+      <figcaption>CASE-002</figcaption>
+    </figure>
+    <figure>
+      <img src="case-003.png" alt="QR code encoding CASE-003" width="330" height="330">
+      <figcaption>CASE-003</figcaption>
+    </figure>
+  </main>
+</body>
+</html>

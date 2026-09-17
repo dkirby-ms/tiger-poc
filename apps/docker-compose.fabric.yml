@@ -1,4 +1,9 @@
 services:
+  publisher-qr:
+    environment:
+      FABRIC_EVENTSTREAM_CONNECTION_STRING_FILE: /run/secrets/fabric_connection_string
+    secrets:
+      - fabric_connection_string
   publisher:
     environment:
       FABRIC_EVENTSTREAM_CONNECTION_STRING_FILE: /run/secrets/fabric_connection_string

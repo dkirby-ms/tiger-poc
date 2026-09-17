@@ -1,9 +1,36 @@
 {
   "$schema": "https://dataexplorer.azure.com/static/d/schema/82/dashboard.json",
-  "title": "Tiger Position Overview",
+  "title": "Tiger Perception Overview",
   "schema_version": 82,
   "autoRefresh": { "enabled": false },
   "tiles": [
+    {
+      "id": "ce3a3a70-a6a9-4a40-bd72-000000000008",
+      "title": "Distinct Cases Identified in Time Range",
+      "visualType": "card",
+      "queryRef": { "kind": "query", "queryId": "f36c8264-f362-47e9-9954-000000000008" },
+      "pageId": "50be4fa0-851c-4631-9896-000000000004",
+      "layout": { "x": 0, "y": 0, "width": 12, "height": 3 },
+      "visualOptions": { "multiStat__valueColumn": "Cases", "multiStat__textSize": "small" }
+    },
+    {
+      "id": "ce3a3a70-a6a9-4a40-bd72-000000000009",
+      "title": "Last Case Identification (All Time)",
+      "visualType": "table",
+      "queryRef": { "kind": "query", "queryId": "f36c8264-f362-47e9-9954-000000000009" },
+      "pageId": "50be4fa0-851c-4631-9896-000000000004",
+      "layout": { "x": 0, "y": 3, "width": 12, "height": 6 },
+      "visualOptions": {}
+    },
+    {
+      "id": "ce3a3a70-a6a9-4a40-bd72-000000000010",
+      "title": "Case Identification History",
+      "visualType": "table",
+      "queryRef": { "kind": "query", "queryId": "f36c8264-f362-47e9-9954-000000000010" },
+      "pageId": "50be4fa0-851c-4631-9896-000000000004",
+      "layout": { "x": 0, "y": 9, "width": 12, "height": 6 },
+      "visualOptions": {}
+    },
     {
       "id": "ce3a3a70-a6a9-4a40-bd72-000000000001",
       "title": "Positions with Confirmed State",
@@ -90,8 +117,29 @@
       "id": "50be4fa0-851c-4631-9896-000000000003"
     }
   ],
-  "pages": [{ "name": "Position Overview", "id": "50be4fa0-851c-4631-9896-000000000001" }],
+  "pages": [
+    { "name": "Position Overview", "id": "50be4fa0-851c-4631-9896-000000000001" },
+    { "name": "QR Case Identifications", "id": "50be4fa0-851c-4631-9896-000000000004" }
+  ],
   "queries": [
+    {
+      "id": "f36c8264-f362-47e9-9954-000000000008",
+      "dataSource": { "kind": "inline", "dataSourceId": "50be4fa0-851c-4631-9896-000000000003" },
+      "usedVariables": ["_startTime", "_endTime"],
+      "text": "BoxIdentificationEvents\n| where capturedAt between (_startTime .. _endTime)\n| summarize by plantId, subjectId\n| summarize Cases = count()"
+    },
+    {
+      "id": "f36c8264-f362-47e9-9954-000000000009",
+      "dataSource": { "kind": "inline", "dataSourceId": "50be4fa0-851c-4631-9896-000000000003" },
+      "usedVariables": [],
+      "text": "LastCaseIdentification\n| project Plant = plantId, Case = subjectId, LastIdentifiedArea = positionId, LastIdentifiedAt = capturedAt, Camera = sourceId\n| order by LastIdentifiedAt desc"
+    },
+    {
+      "id": "f36c8264-f362-47e9-9954-000000000010",
+      "dataSource": { "kind": "inline", "dataSourceId": "50be4fa0-851c-4631-9896-000000000003" },
+      "usedVariables": ["_startTime", "_endTime"],
+      "text": "BoxIdentificationEvents\n| where capturedAt between (_startTime .. _endTime)\n| summarize arg_max(publishedAt, *) by eventId\n| project Timestamp = capturedAt, Plant = plantId, Case = subjectId, IdentifiedArea = positionId, Camera = sourceId, EventId = eventId\n| top 500 by Timestamp desc"
+    },
     {
       "id": "f36c8264-f362-47e9-9954-000000000001",
       "dataSource": { "kind": "inline", "dataSourceId": "50be4fa0-851c-4631-9896-000000000003" },

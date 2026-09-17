@@ -44,9 +44,9 @@ def database_schema(config: dict) -> str:
                 (".ingest inline ", ".show ")
             ):
                 raise ValueError(f"Unsupported deployment command in {filename}")
-    if len(commands) != 10 or commands.count(INGESTION_TIME_POLICY) != 1:
+    if len(commands) != 15 or commands.count(INGESTION_TIME_POLICY) != 1:
         raise ValueError(
-            "Expected ten commands including the ingestion-time policy; review the KQL artifact compiler after changing command structure"
+            "Expected fifteen commands including the ingestion-time policy; review the KQL artifact compiler after changing command structure"
         )
     return (
         "\n\n".join(command for command in commands if command != INGESTION_TIME_POLICY)
@@ -56,7 +56,7 @@ def database_schema(config: dict) -> str:
 
 def reference_ingest(config: dict, table: str, content: str) -> str:
     """Produce idempotent reference ingestion from CSV, without appending duplicates."""
-    if table not in {"Plants", "Cells", "MonitoredPositions"}:
+    if table not in {"Plants", "Cells", "MonitoredPositions", "Cases"}:
         raise ValueError("Only reference tables may be replaced")
     script = (Path(config["artifactRoot"]) / "kql/01_create_tables.kql").read_text()
     schema = re.search(rf"\.create table {table} \((.*?)\)", script, re.DOTALL)
@@ -104,7 +104,7 @@ def reference_tables(config: dict) -> dict[str, str]:
     script = Path(config["artifactRoot"]) / "kql/01_create_tables.kql"
     content = script.read_text(encoding="utf-8")
     result = {}
-    for name in ("Plants", "Cells", "MonitoredPositions"):
+    for name in ("Plants", "Cells", "MonitoredPositions", "Cases"):
         schema = re.search(rf"\.create table {name} \((.*?)\)", content, re.DOTALL)
         seed = re.search(
             rf"\.ingest inline into table {name} <\|\n(.*?)(?:\n\s*\n|$)",
@@ -144,9 +144,14 @@ def deployment_model(config: dict) -> dict:
         "Plant": "Plants",
         "Cell": "Cells",
         "MonitoredPosition": "MonitoredPositions",
+        "Case": "Cases",
     }
     bindings = {
         binding["targetEntityType"]: binding["mappingRule"]
+        for binding in ontology["telemetryBindings"]
+    }
+    telemetry = {
+        binding["targetEntityType"]: binding
         for binding in ontology["telemetryBindings"]
     }
     entities = []
@@ -178,6 +183,12 @@ def deployment_model(config: dict) -> dict:
             rendered["timeseries"]["eventId"] = ["eventId", "String"]
             rendered["timeseries"]["Timestamp"] = ["capturedAt", "DateTime"]
             rendered["linkProperty"] = binding["entityPrimaryKey"]
+            rendered["historyStream"] = telemetry[name].get(
+                "historyStream", "ConfirmedPresenceEvents"
+            )
+            rendered["observationTypes"] = telemetry[name].get(
+                "observationTypes", config["observationTypes"]
+            )
         entities.append(rendered)
     by_name = {entity["name"]: entity for entity in entities}
     relationships = []
@@ -266,7 +277,7 @@ def twin_definition(
         for timeseries in [False, True] if entity.get("timeseries") else [False]:
             name = entity["name"] + ("_timeseries" if timeseries else "_reference")
             operation = operation_id(name)
-            table = "ConfirmedPresenceEvents" if timeseries else entity["table"]
+            table = entity["historyStream"] if timeseries else entity["table"]
             mappings = [
                 {"SourceColumn": spec[0], "EntityTypePropertyName": name}
                 for name, spec in entity[
@@ -297,7 +308,15 @@ def twin_definition(
                     "SourceTableName": table,
                     "SourceSchema": None,
                 },
-                "Filters": filters if timeseries else None,
+                "Filters": {
+                    **filters,
+                    "FilterOperations": [
+                        {**filters["FilterOperations"][0], "Value": value}
+                        for value in entity["observationTypes"]
+                    ],
+                }
+                if timeseries
+                else None,
             }
             group = "timeseries" if timeseries else "reference"
             groups[group].append(operation)

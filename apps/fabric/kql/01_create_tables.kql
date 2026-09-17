@@ -82,7 +82,12 @@
     monitoredSourceId: string
 )
 
-// 7. Verify ProcessEventsRaw, Plants, Cells and MonitoredPositions are listed.
+.create table Cases (
+    caseId: string,
+    plantId: string
+)
+
+// 7. Verify ProcessEventsRaw, Plants, Cells, MonitoredPositions and Cases are listed.
 // If any are missing, run their create blocks in this database before continuing.
 .show tables
 
@@ -94,6 +99,7 @@ demo-plant-01,Demo Plant,"Seattle, WA",2026-09-15T00:00:00Z
 .ingest inline into table Cells <|
 cell-a,demo-plant-01,Assembly Cell Alpha,Robotic Assembly
 cell-b,demo-plant-01,Packaging Cell Beta,Automated Packaging
+cell-c,demo-plant-01,QR Inventory Cell,Case Identification
 
 // 10. Seed MonitoredPositions once. Select this command and all four data rows.
 .ingest inline into table MonitoredPositions <|
@@ -101,15 +107,21 @@ cell-a-object-position-01,cell-a,Object Station A1,cell-a-camera-01
 cell-a-pallet-position-01,cell-a,Pallet Station A1,cell-a-camera-01
 cell-b-object-position-01,cell-b,Object Station B1,cell-b-camera-01
 cell-b-pallet-position-01,cell-b,Pallet Station B1,cell-b-camera-01
+cell-c-inventory-area-01,cell-c,Inventory Area C1,cell-c-camera-01
+
+.ingest inline into table Cases <|
+CASE-001,demo-plant-01
+CASE-002,demo-plant-01
+CASE-003,demo-plant-01
 
 // 11. Verify Plants: expected Count = 1 in a fresh database seeded once.
 Plants
 | count
 
-// 12. Verify Cells: expected Count = 2 in a fresh database seeded once.
+// 12. Verify Cells: expected Count = 3 in a fresh database seeded once.
 Cells
 | count
 
-// 13. Verify MonitoredPositions: expected Count = 4 in a fresh database seeded once.
+// 13. Verify MonitoredPositions: expected Count = 5 in a fresh database seeded once.
 MonitoredPositions
 | count

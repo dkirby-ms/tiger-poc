@@ -21,6 +21,25 @@ services:
         bind:
           create_host_path: false
 
+  detect-qr:
+    <<: *runtime
+    command:
+      - uv
+      - run
+      - --no-sync
+      - python
+      - rtsp_yolo.py
+      - --manifest
+      - manifests/cell-c-qr.yaml
+    environment:
+      CAMERA_C_RTSP_URL: ${CAMERA_C_RTSP_URL:?Set CAMERA_C_RTSP_URL in apps/.env}
+    volumes:
+      - type: bind
+        source: ../data
+        target: /workspace/data
+        bind:
+          create_host_path: false
+
   viewer:
     <<: *runtime
     command:
@@ -32,6 +51,8 @@ services:
       - tiger_perception.viewer
       - --manifest
       - manifests/cell-a-jeep.yaml
+      - --manifest
+      - manifests/cell-c-qr.yaml
       - --host
       - 0.0.0.0
       - --port
@@ -77,5 +98,32 @@ services:
           create_host_path: false
       - publisher-state:/var/lib/tiger-publisher
 
+  publisher-qr:
+    <<: *runtime
+    restart: "no"
+    profiles: [fabric]
+    command:
+      - uv
+      - run
+      - --no-sync
+      - python
+      - -m
+      - tiger_perception.fabric
+      - --input
+      - /workspace/data/cell-c/events.jsonl
+      - --follow
+      - --checkpoint
+      - /var/lib/tiger-publisher/delivery.json
+      - --live-fabric
+    volumes:
+      - type: bind
+        source: ../data
+        target: /workspace/data
+        read_only: true
+        bind:
+          create_host_path: false
+      - publisher-qr-state:/var/lib/tiger-publisher
+
 volumes:
   publisher-state:
+  publisher-qr-state:

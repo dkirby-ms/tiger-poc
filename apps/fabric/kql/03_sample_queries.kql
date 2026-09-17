@@ -1,3 +1,20 @@
+// QR identifications describe history, not current inventory or departures.
+LastCaseIdentification
+| project plantId, Case = subjectId, LastIdentifiedArea = positionId,
+          LastIdentifiedAt = capturedAt, Camera = sourceId
+| order by LastIdentifiedAt desc
+
+BoxIdentificationEvents
+| where capturedAt > ago(1h)
+| summarize arg_max(publishedAt, *) by eventId
+| project capturedAt, plantId, Case = subjectId, positionId, sourceId, eventId
+| top 500 by capturedAt desc
+
+BoxIdentificationEvents
+| where capturedAt > ago(1h)
+| summarize by plantId, subjectId
+| summarize DistinctCasesIdentified = count()
+
 // ==============================================================================
 // Microsoft Fabric KQL Queries for Real-Time Intelligence & Dashboards
 // ==============================================================================

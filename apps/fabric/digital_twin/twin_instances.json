@@ -5,11 +5,19 @@
       "plantName": "Demo Plant",
       "location": "Seattle, WA",
       "relationships": {
-        "containsCell": ["cell-a", "cell-b"]
+        "containsCell": ["cell-a", "cell-b", "cell-c"],
+        "registersCase": ["CASE-001", "CASE-002", "CASE-003"]
       }
     }
   ],
   "cells": [
+    {
+      "cellId": "cell-c",
+      "plantId": "demo-plant-01",
+      "cellName": "QR Inventory Cell",
+      "lineType": "Case Identification",
+      "relationships": { "monitorsPosition": ["cell-c-inventory-area-01"] }
+    },
     {
       "cellId": "cell-a",
       "plantId": "demo-plant-01",
@@ -30,6 +38,13 @@
     }
   ],
   "monitoredPositions": [
+    {
+      "positionId": "cell-c-inventory-area-01",
+      "cellId": "cell-c",
+      "positionName": "Inventory Area C1",
+      "monitoredSourceId": "cell-c-camera-01",
+      "initialState": { "isOccupied": null, "confidence": null, "lastObservedTimestamp": null }
+    },
     {
       "positionId": "cell-a-object-position-01",
       "cellId": "cell-a",
@@ -74,5 +89,10 @@
         "lastObservedTimestamp": null
       }
     }
+  ],
+  "cases": [
+    { "caseId": "CASE-001", "plantId": "demo-plant-01", "initialState": { "lastIdentifiedArea": null, "lastIdentifiedAt": null } },
+    { "caseId": "CASE-002", "plantId": "demo-plant-01", "initialState": { "lastIdentifiedArea": null, "lastIdentifiedAt": null } },
+    { "caseId": "CASE-003", "plantId": "demo-plant-01", "initialState": { "lastIdentifiedArea": null, "lastIdentifiedAt": null } }
   ]
 }
