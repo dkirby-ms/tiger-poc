@@ -193,8 +193,8 @@ def test_given_dashboard_template_when_shared_then_connection_is_unconfigured() 
         "clusterUri": "https://example.invalid", "database": "REPLACE_WITH_KQL_DATABASE",
     }
     queries = {query["id"]: query for query in dashboard["queries"]}
-    assert len(queries) == len(dashboard["queries"]) == len(dashboard["tiles"]) == 10
-    assert len({tile["id"] for tile in dashboard["tiles"]}) == 10
+    assert len(queries) == len(dashboard["queries"]) == len(dashboard["tiles"]) == 13
+    assert len({tile["id"] for tile in dashboard["tiles"]}) == 13
     for tile in dashboard["tiles"]:
         assert tile["pageId"] in {page["id"] for page in dashboard["pages"]}
         query = queries[tile["queryRef"]["queryId"]]

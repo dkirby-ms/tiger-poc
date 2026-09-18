@@ -64,6 +64,11 @@ ITEMS = {
     "backing": ("Lakehouse", "lakehouses", "twin_data"),
     "eventstream": ("Eventstream", "eventstreams", "ingest"),
     "twin": ("DigitalTwinBuilder", "digitalTwinBuilders", "twin"),
+    "flow_ondemand": (
+        "DigitalTwinBuilderFlow",
+        "digitalTwinBuilderFlows",
+        "twin_OnDemand",
+    ),
     **{
         f"flow_{group}": (
             "DigitalTwinBuilderFlow",
@@ -443,6 +448,58 @@ class Deployment:
             raise DeploymentError("KQL reported a command error; deployment stopped.")
         return body
 
+    def configure_twin_sources(self) -> None:
+        """Expose twin output as distinct Eventhouse shortcuts for analytics."""
+        for table in (
+            "entityinstance",
+            "entitytype",
+            "propertydescriptor",
+            "stringpropertyvalue",
+            "relationshipinstance",
+            "entitytyperelationship",
+            "timeseriespropertydescriptor",
+            "timeseriesinstancedescriptor",
+            "stringtimeseriesvalue",
+        ):
+            self.once(
+                f"twin_shortcut_{table}",
+                lambda table=table: self.client.request(
+                    "POST",
+                    f"workspaces/{self.workspace}/items/{self.state['items']['database']}/shortcuts",
+                    json={
+                        "path": "Tables",
+                        "name": f"Twin_{table}",
+                        "target": {
+                            "oneLake": {
+                                "workspaceId": self.workspace,
+                                "itemId": self.state["items"]["backing"],
+                                "path": f"Tables/{table}",
+                            }
+                        },
+                    },
+                ),
+            )
+            self.once(
+                f"twin_external_{table}",
+                lambda table=table: self.kql(
+                    f".create-or-alter external table Twin_{table} kind=delta ("
+                    + json.dumps(
+                        f"https://onelake.dfs.fabric.microsoft.com/{self.workspace}/"
+                        f"{self.state['items']['database']}/Tables/Twin_{table};impersonate"
+                    )
+                    + ")"
+                ),
+            )
+
+    def configure_twin_projections(self) -> None:
+        """Install repeatable query functions over the twin backing tables."""
+        self.configure_twin_sources()
+        script = (
+            Path(self.config["artifactRoot"]) / "kql/04_twin_projection.kql"
+        ).read_text(encoding="utf-8")
+        for command in script.split(";\n\n"):
+            self.kql(command)
+
     def export_dashboard(self) -> Path:
         """Render a deployment-specific dashboard without changing the template."""
         database_id = self.state["items"]["database"]
@@ -603,6 +660,16 @@ class Deployment:
         self.create("eventstream", {"eventstream.json": topology})
         parts, groups = twin_definition(self.config, self.workspace, source, backing)
         twin = self.create("twin", parts)
+        self.create(
+            "flow_ondemand",
+            {
+                "definition.json": {
+                    "DigitalTwinBuilderId": twin,
+                    "OperationIds": [],
+                    "IsOnDemand": True,
+                }
+            },
+        )
         for group, operations in groups.items():
             self.create(
                 f"flow_{group}",
@@ -859,7 +926,7 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--definitions-only",
         action="store_true",
-        help="Provision definitions without initializing twin mappings (apply only)",
+        help="Compatibility flag: apply always provisions without running mappings",
     )
     parser.add_argument(
         "--phase", choices=["reference", "events", "all"], default="all"
@@ -908,7 +975,7 @@ def main(argv: list[str] | None = None) -> int:
                             for key, spec in ITEMS.items()
                         ],
                         "referenceTables": list(tables),
-                        "flowExecution": f"apply initializes reference, relationships, and timeseries using {job_type}; --definitions-only skips execution",
+                        "flowExecution": "apply provisions only; mapping execution is a separate operational step",
                     },
                     indent=2,
                 )
@@ -975,16 +1042,12 @@ def main(argv: list[str] | None = None) -> int:
                     )
 
                 deployment.apply(upload)
+                deployment.configure_twin_projections()
                 deployment.export_dashboard()
-                if args.definitions_only:
-                    LOGGER.info(
-                        "Definitions-only deployment: twin mapping jobs were skipped."
-                    )
-                else:
-                    deployment.initialize(
-                        job_type,
-                        lambda group: deployment.wait_for_sources(filesystem, group),
-                    )
+                LOGGER.info(
+                    "Provisioning complete. Twin mappings were not run; initialize "
+                    "and run mappings in Fabric before expecting twin output."
+                )
         return 0
     except (ValueError, KeyError, OSError) as error:
         LOGGER.error("Configuration error: %s", error)

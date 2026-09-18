@@ -1,9 +1,36 @@
 {
   "$schema": "https://dataexplorer.azure.com/static/d/schema/82/dashboard.json",
-  "title": "Tiger Perception Overview",
+  "title": "Tiger Digital Twin",
   "schema_version": 82,
   "autoRefresh": { "enabled": false },
   "tiles": [
+    {
+      "id": "ce3a3a70-a6a9-4a40-bd72-000000000011",
+      "title": "Twin Population",
+      "visualType": "table",
+      "queryRef": { "kind": "query", "queryId": "f36c8264-f362-47e9-9954-000000000011" },
+      "pageId": "50be4fa0-851c-4631-9896-000000000005",
+      "layout": { "x": 0, "y": 0, "width": 12, "height": 3 },
+      "visualOptions": {}
+    },
+    {
+      "id": "ce3a3a70-a6a9-4a40-bd72-000000000012",
+      "title": "Case Twins: Last Observed Area and Factory Context (All Time)",
+      "visualType": "table",
+      "queryRef": { "kind": "query", "queryId": "f36c8264-f362-47e9-9954-000000000012" },
+      "pageId": "50be4fa0-851c-4631-9896-000000000005",
+      "layout": { "x": 0, "y": 3, "width": 12, "height": 6 },
+      "visualOptions": {}
+    },
+    {
+      "id": "ce3a3a70-a6a9-4a40-bd72-000000000013",
+      "title": "Case Twin Observation History",
+      "visualType": "table",
+      "queryRef": { "kind": "query", "queryId": "f36c8264-f362-47e9-9954-000000000013" },
+      "pageId": "50be4fa0-851c-4631-9896-000000000005",
+      "layout": { "x": 0, "y": 9, "width": 12, "height": 6 },
+      "visualOptions": {}
+    },
     {
       "id": "ce3a3a70-a6a9-4a40-bd72-000000000008",
       "title": "Distinct Cases Identified in Time Range",
@@ -118,10 +145,29 @@
     }
   ],
   "pages": [
+    { "name": "Digital Twin", "id": "50be4fa0-851c-4631-9896-000000000005" },
     { "name": "Position Overview", "id": "50be4fa0-851c-4631-9896-000000000001" },
     { "name": "QR Case Identifications", "id": "50be4fa0-851c-4631-9896-000000000004" }
   ],
   "queries": [
+    {
+      "id": "f36c8264-f362-47e9-9954-000000000011",
+      "dataSource": { "kind": "inline", "dataSourceId": "50be4fa0-851c-4631-9896-000000000003" },
+      "usedVariables": [],
+      "text": "let entities = TigerTwinEntities() | summarize Entities=count(), Cases=countif(EntityType == 'Case');\nlet relationships = toscalar(TigerTwinRelationships() | count);\nlet observations = toscalar(TigerTwinCaseHistory() | count);\nentities\n| extend Relationships=relationships, CaseObservations=observations\n| extend Status=case(Entities == 0, 'Twin not populated', Cases == 0, 'No case twins mapped', Relationships == 0, 'No twin relationships mapped', CaseObservations == 0, 'No case observations mapped', 'Twin output available')"
+    },
+    {
+      "id": "f36c8264-f362-47e9-9954-000000000012",
+      "dataSource": { "kind": "inline", "dataSourceId": "50be4fa0-851c-4631-9896-000000000003" },
+      "usedVariables": [],
+      "text": "TigerTwinCaseLocations()\n| extend ObservationAge=now() - LastObservedAt\n| order by CaseId asc"
+    },
+    {
+      "id": "f36c8264-f362-47e9-9954-000000000013",
+      "dataSource": { "kind": "inline", "dataSourceId": "50be4fa0-851c-4631-9896-000000000003" },
+      "usedVariables": ["_startTime", "_endTime"],
+      "text": "TigerTwinCaseHistory()\n| where LastObservedAt between (_startTime .. _endTime)\n| project CaseId, LastObservedAt, LastObservedArea, Camera, EventIds, ObservationStatus\n| top 500 by LastObservedAt desc"
+    },
     {
       "id": "f36c8264-f362-47e9-9954-000000000008",
       "dataSource": { "kind": "inline", "dataSourceId": "50be4fa0-851c-4631-9896-000000000003" },

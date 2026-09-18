@@ -643,7 +643,7 @@ def test_given_empty_workspace_when_applied_twice_then_second_run_creates_nothin
         lambda *args: pytest.fail("Unexpected upload on resume")
     )
 
-    assert len(items) == 9
+    assert len(items) == 10
     assert len(uploads) == 4
     assert "mirroring_qr" in deployment.state["completed"]
     assert "shortcut_qr" in deployment.state["completed"]
@@ -681,6 +681,24 @@ def test_given_empty_workspace_when_applied_twice_then_second_run_creates_nothin
         if request.url.path.endswith("/eventstreams")
     )
     import base64
+
+    flows = [
+        json.loads(
+            base64.b64decode(
+                json.loads(request.content)["definition"]["parts"][0]["payload"]
+            )
+        )
+        for request in first_requests
+        if request.url.path.endswith("/digitalTwinBuilderFlows")
+    ]
+    assert len(flows) == 4
+    assert [flow for flow in flows if flow["IsOnDemand"]] == [
+        {
+            "DigitalTwinBuilderId": deployment.state["items"]["twin"],
+            "OperationIds": [],
+            "IsOnDemand": True,
+        }
+    ]
 
     topology = json.loads(
         base64.b64decode(eventstream["definition"]["parts"][0]["payload"])
@@ -814,7 +832,7 @@ def test_given_default_cli_when_parsed_then_all_mapping_stages_are_selected() ->
 
 
 @pytest.mark.parametrize("definitions_only", [False, True])
-def test_given_apply_cli_when_invoked_then_initialization_is_default(
+def test_given_apply_cli_when_invoked_then_only_provisioning_runs(
     tmp_path, monkeypatch, definitions_only
 ) -> None:
     from contextlib import nullcontext
@@ -834,6 +852,9 @@ def test_given_apply_cli_when_invoked_then_initialization_is_default(
 
         def export_dashboard(self):
             calls.append("dashboard")
+
+        def configure_twin_projections(self):
+            calls.append("twin_projections")
 
         def initialize(self, job_type, wait_for_sources):
             calls.append(job_type)
@@ -880,11 +901,7 @@ def test_given_apply_cli_when_invoked_then_initialization_is_default(
         arguments.append("--definitions-only")
 
     assert main(arguments) == 0
-    assert calls == (
-        ["apply", "dashboard"]
-        if definitions_only
-        else ["apply", "dashboard", "ExecuteOperations", "timeseries"]
-    )
+    assert calls == ["apply", "twin_projections", "dashboard"]
 
 
 @pytest.mark.parametrize("suffix", ["001", "002"])
@@ -978,6 +995,40 @@ def test_given_invalid_dashboard_inputs_when_exported_then_no_file_is_written(
         deployment.export_dashboard()
 
     assert not (tmp_path / "state.dashboard.json").exists()
+
+
+def test_given_twin_sources_when_configured_twice_then_only_backing_tables_are_linked(
+    tmp_path, monkeypatch
+) -> None:
+    requests = []
+
+    def respond(request):
+        requests.append(json.loads(request.content))
+        return httpx.Response(201, json={})
+
+    deployment = Deployment(
+        FabricClient(
+            httpx.Client(transport=httpx.MockTransport(respond)), lambda scope: "test"
+        ),
+        load_config(ROOT / "infra/fabric/config.json"),
+        "00000000-0000-4000-8000-000000000001",
+        tmp_path / "state.json",
+    )
+    deployment.state["items"] = {"database": "events", "backing": "twin-output"}
+    registrations = []
+    monkeypatch.setattr(deployment, "kql", registrations.append)
+
+    deployment.configure_twin_sources()
+    deployment.configure_twin_sources()
+
+    assert len(requests) == 9
+    assert all(
+        body["target"]["oneLake"]["itemId"] == "twin-output" for body in requests
+    )
+    assert all(body["name"].startswith("Twin_") for body in requests)
+    assert len(deployment.state["completed"]) == 18
+    assert len(registrations) == 9
+    assert all(";impersonate" in command for command in registrations)
 
 
 def test_given_partial_initialization_when_resumed_then_completed_stages_are_skipped(
