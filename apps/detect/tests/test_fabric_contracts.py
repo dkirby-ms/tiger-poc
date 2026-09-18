@@ -72,7 +72,7 @@ def test_given_detect_manifests_when_joined_then_reference_identities_match() ->
     plants = {item["plantId"]: item for item in instances["plants"]}
     script = (FABRIC / "kql/01_create_tables.kql").read_text()
 
-    for path in [DETECT.parent.parent / "manifest.yaml", *(DETECT / "manifests").glob("*.yaml")]:
+    for path in (DETECT / "manifests").glob("*.yaml"):
         manifest = yaml.safe_load(path.read_text())
         source = manifest["spec"]["source"]
         position = positions[source["subjectId"]]

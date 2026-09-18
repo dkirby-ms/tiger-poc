@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 import rtsp_yolo
 from tiger_perception.sinks import LocalJsonlSink, SinkError, SinkUnavailableError
 

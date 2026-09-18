@@ -213,7 +213,7 @@ Use one human-readable `PerceptionWorkload` manifest per instance. The configura
 * Region matching, confidence, confirmation-window, and stale-evidence settings
 * Local output path or Fabric destination reference and ontology mappings, according to milestone
 
-The two demo manifests select different cameras, regions, subject IDs, and output files while using the same application and presence-rule implementation. Plant metadata reflects the actual deployment and may be shared when both cells belong to one plant. The implemented local field layout and validation are documented in the [configuration contract](../apps/detect/README.md#configuration-contract); the root manifest now describes local pallet presence and requires separately supplied pallet weights. Avoid a separate configuration service.
+The demo manifests select different cameras, regions, subject IDs, and output files while using the same application and presence-rule implementation. Plant metadata reflects the actual deployment and may be shared when both cells belong to one plant. The implemented local field layout and validation are documented in the [configuration contract](../apps/detect/README.md#configuration-contract); the Cell B pallet manifest describes local pallet presence and requires separately supplied pallet weights. Avoid a separate configuration service.
 
 ## Runtime And Deployment
 

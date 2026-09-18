@@ -103,14 +103,12 @@ def test_given_missing_reference_when_resolving_then_clear_error(monkeypatch):
         resolve_source(workload.spec.source)
 
 
-def test_given_pallet_templates_when_loaded_then_shared_model_and_distinct_positions():
-    first = load_workload(MANIFESTS.parents[2] / "manifest.yaml")
-    second = load_workload(MANIFESTS / "cell-b-pallet.yaml")
+def test_given_pallet_manifest_when_loaded_then_use_pallet_detection_contract():
+    workload = load_workload(MANIFESTS / "cell-b-pallet.yaml")
 
-    assert first.spec.perception.model == second.spec.perception.model
-    assert first.spec.perception.observationType == second.spec.perception.observationType == "PalletPresent"
-    assert first.spec.source.subjectId != second.spec.source.subjectId
-    assert first.spec.destination.path != second.spec.destination.path
+    assert workload.spec.perception.observationType == "PalletPresent"
+    assert workload.spec.perception.labels == ["pallet"]
+    assert workload.spec.source.subjectId == "cell-b-pallet-position-01"
 
 
 @pytest.mark.parametrize("cell,present", [("a", True), ("b", False)])

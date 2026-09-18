@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from tiger_perception import fabric as relay
 from tiger_perception.contracts import ProcessEvent
 from tiger_perception.sinks import (
