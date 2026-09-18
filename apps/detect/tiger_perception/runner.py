@@ -8,17 +8,17 @@ import json
 import logging
 import sys
 from contextlib import ExitStack, contextmanager
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
 
 from dotenv import load_dotenv
 
-from .adapters import CameraCapture, YoloProvider
+from .adapters import CameraCapture, QrProvider, YoloProvider
 from .config import Workload, load_workload, resolve_source
 from .contracts import Frame, RawInference
-from .mapping import map_presence
+from .mapping import map_identification, map_presence
 from .presence import PresenceRule
 from .sinks import LocalJsonlSink, SinkError
 
@@ -72,17 +72,21 @@ class WorkloadRuntime:
         self._last_status = 0.0
         self._last_availability = None
         self._detections = []
+        self._qr_codes = []
+        self._case_rules: dict[str, PresenceRule] = {}
 
     def accept_frame(self, frame: Frame) -> bool:
         """Invalidate confirmation across reconnects and unusable frames."""
         epoch = frame.metadata.get("epoch")
         if epoch != self._epoch:
             self.rule.reconnect()
+            self._case_rules.clear()
             self._epoch = epoch
         self.dropped_frames = frame.metadata.get("droppedFrames", 0)
         self.read_milliseconds = frame.metadata.get("readMilliseconds", 0.0)
         if not frame.metadata.get("usable", False):
             self.rule.unavailable()
+            self._invalidate_cases()
             self.reason = "Camera unavailable" if frame.payload is None else "Unusable image"
             self.unusable_frames += 1
             return False
@@ -90,6 +94,7 @@ class WorkloadRuntime:
         age = (now - datetime.fromisoformat(frame.captured_at)).total_seconds()
         if not 0 <= age < self.rule.policy.stale_seconds:
             self.rule.unavailable()
+            self._invalidate_cases()
             self.reason = "Stale frame"
             return False
         return True
@@ -101,26 +106,59 @@ class WorkloadRuntime:
         self.frame_age_seconds = (now - datetime.fromisoformat(inference.captured_at)).total_seconds()
         self.failed_inferences += int(not inference.succeeded)
         self._detections = [asdict(detection) for detection in inference.detections]
+        self._qr_codes = []
         observation = self.rule.observe(inference, now=now)
         self.reason = "" if self.rule.availability != "unavailable" else "Inference failed or stale"
-        if observation is not None:
-            event = map_presence(observation, self.workload)
-            try:
-                self.sink.publish(event)
-            except SinkError:
-                self.rule.unavailable()
-                self.reason = "Event publication failed; workload stopped"
-                self.write_status(force=True)
-                raise
-            self.latest_event = event
-            logger.info("source=%s subject=%s value=%s event=%s",
-                        observation.source_id, observation.subject_id,
-                        observation.value, observation.observation_id)
+        if self.workload.spec.perception.provider == "qr":
+            self._process_cases(inference, now=now)
+        elif observation is not None:
+            self._publish_event(map_presence(observation, self.workload))
+
+    def _invalidate_cases(self) -> None:
+        self._qr_codes = []
+        for rule in self._case_rules.values():
+            rule.unavailable()
+
+    def _process_cases(self, inference: RawInference, *, now: datetime) -> None:
+        if self.rule.availability == "unavailable":
+            self._invalidate_cases()
+            return
+        matching = [item for item in inference.detections
+                    if item.case_id is not None and self.rule.policy.matches(item)]
+        self._qr_codes = sorted({item.case_id for item in matching})
+        for case_id in self._qr_codes:
+            if case_id not in self._case_rules:
+                self._case_rules[case_id] = PresenceRule(
+                    source_id=self.rule.source_id, subject_id=case_id,
+                    policy=self.rule.policy, observation_type="BoxIdentified")
+        for case_id, rule in list(self._case_rules.items()):
+            evidence = replace(inference, detections=[item for item in matching if item.case_id == case_id])
+            observation = rule.observe(evidence, now=now)
+            if observation is not None:
+                if observation.value:
+                    self._publish_event(map_identification(observation, self.workload))
+                else:
+                    del self._case_rules[case_id]
+
+    def _publish_event(self, event: dict[str, object]) -> None:
+        try:
+            self.sink.publish(event)
+        except SinkError:
+            self.rule.unavailable()
+            self._invalidate_cases()
+            self.reason = "Event publication failed; workload stopped"
+            self.write_status(force=True)
+            raise
+        self.latest_event = event
+        logger.info("source=%s subject=%s value=%s event=%s",
+                    event["sourceId"], event["subjectId"], event["value"], event["eventId"])
 
     def write_status(self, *, force: bool = False) -> None:
         """Publish redacted live status with independent freshness timestamps."""
         now = datetime.now(UTC)
         self.rule.expire(now)
+        for rule in self._case_rules.values():
+            rule.expire(now)
         if self.rule.availability == "unavailable" and not self.reason:
             self.reason = "Waiting for fresh evidence"
         if not force and monotonic() - self._last_status < 0.2:
@@ -141,6 +179,7 @@ class WorkloadRuntime:
             "reason": self.reason, "writtenAt": now.isoformat(),
             "capturedAt": self.rule.last_captured_at.isoformat() if self.rule.last_captured_at else None,
             "latestEvent": self.latest_event, "detections": self._detections,
+            "qrCodes": self._qr_codes,
             "metrics": {
                 "processedFrames": self.frames, "failedInferences": self.failed_inferences,
                 "unusableFrames": self.unusable_frames, "droppedFrames": self.dropped_frames,
@@ -157,7 +196,8 @@ class WorkloadRuntime:
         """Draw configured region and qualifying detections onto a bounded preview."""
         import cv2
 
-        image = frame.payload.copy()
+        height, width = frame.payload.shape[:2]
+        image = cv2.resize(frame.payload, (960, max(1, int(height * 960 / width))))
         height, width = image.shape[:2]
         for bounds, color in [(self.rule.policy.region, (60, 190, 240))] + [
             (tuple(item.bounding_box[key] for key in ("xMin", "yMin", "xMax", "yMax")), (130, 215, 60))
@@ -166,7 +206,13 @@ class WorkloadRuntime:
             left, top, right, bottom = bounds
             cv2.rectangle(image, (int(left * width), int(top * height)),
                           (int(right * width), int(bottom * height)), color, 3)
-        image = cv2.resize(image, (960, max(1, int(height * 960 / width))))
+        for item in inference.detections:
+            if (self.workload.spec.perception.provider == "qr"
+                    and item.case_id and self.rule.policy.matches(item)):
+                origin = (min(width - 110, max(0, int(item.bounding_box["xMin"] * width))),
+                          max(20, int(item.bounding_box["yMin"] * height) - 8))
+                cv2.putText(image, item.case_id, origin, cv2.FONT_HERSHEY_SIMPLEX,
+                            0.6, (0, 80, 220), 2, cv2.LINE_AA)
         encoded, payload = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 80])
         if encoded:
             atomic_write(Path(self.workload.spec.destination.statusPath).with_suffix(".jpg"), payload.tobytes())
@@ -192,7 +238,8 @@ def run(args: argparse.Namespace) -> int:
         load_dotenv(args.env_file, override=False)
     workload = load_workload(args.manifest)
     uri = resolve_source(workload.spec.source)
-    provider = YoloProvider(workload.spec.perception, workload.spec.presence.confidence)
+    provider = (QrProvider() if workload.spec.perception.provider == "qr"
+                else YoloProvider(workload.spec.perception, workload.spec.presence.confidence))
     logger.info("source=%s provider=%s model=%s", workload.spec.source.id, provider.provider, provider.identity)
     if args.check:
         return 0

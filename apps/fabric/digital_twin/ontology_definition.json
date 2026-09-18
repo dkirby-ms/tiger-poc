@@ -36,6 +36,20 @@
         { "name": "lastObservedTimestamp", "type": "datetime" },
         { "name": "monitoredSourceId", "type": "string" }
       ]
+    },
+    {
+      "id": "Case",
+      "displayName": "Inventory Case",
+      "description": "QR-labeled case with identification history, not inferred current presence",
+      "properties": [
+        { "name": "caseId", "type": "string", "isPrimaryKey": true },
+        { "name": "plantId", "type": "string" },
+        { "name": "lastIdentifiedArea", "type": "string" },
+        { "name": "lastIdentifiedAt", "type": "datetime" },
+        { "name": "lastIdentifiedSource", "type": "string" },
+        { "name": "observationType", "type": "string" },
+        { "name": "subjectId", "type": "string" }
+      ]
     }
   ],
   "relationshipTypes": [
@@ -50,6 +64,12 @@
       "displayName": "Monitors Position",
       "sourceEntityType": "Cell",
       "targetEntityType": "MonitoredPosition"
+    },
+    {
+      "id": "registersCase",
+      "displayName": "Registers Case",
+      "sourceEntityType": "Plant",
+      "targetEntityType": "Case"
     }
   ],
   "telemetryBindings": [
@@ -64,6 +84,23 @@
           "confidence": "confidence",
           "observationType": "observationType",
           "lastObservedTimestamp": "capturedAt"
+        }
+      }
+    },
+    {
+      "targetEntityType": "Case",
+      "sourceStream": "LastCaseIdentification",
+      "historyStream": "BoxIdentificationEvents",
+      "observationTypes": ["BoxIdentified"],
+      "mappingRule": {
+        "matchProperty": "subjectId",
+        "entityPrimaryKey": "caseId",
+        "propertyUpdates": {
+          "lastIdentifiedArea": "positionId",
+          "lastIdentifiedAt": "capturedAt",
+          "lastIdentifiedSource": "sourceId",
+          "observationType": "observationType",
+          "subjectId": "subjectId"
         }
       }
     }

@@ -1,0 +1,30 @@
+apiVersion: tiger.microsoft.com/v1alpha1
+kind: PerceptionWorkload
+metadata:
+  name: cell-c-qr-boxes
+  plantName: Demo Plant
+  plantId: demo-plant-01
+spec:
+  source:
+    id: cell-c-camera-01
+    type: rtsp
+    uriFrom: CAMERA_C_RTSP_URL
+    subjectId: cell-c-inventory-area-01
+  perception:
+    provider: qr
+    labels: [qr]
+    observationType: BoxIdentified
+    sampleEveryFrames: 3
+  region:
+    coordinates: normalized-xyxy
+    bounds: [0.0, 0.0, 1.0, 1.0]
+    matching: box-center
+  presence:
+    confidence: 1.0
+    occupiedSeconds: 0.5
+    emptySeconds: 2.0
+    staleSeconds: 3.0
+  destination:
+    connector: local-jsonl
+    path: ../../../data/cell-c/events.jsonl
+    statusPath: ../../../data/cell-c/status.json

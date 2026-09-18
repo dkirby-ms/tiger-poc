@@ -39,8 +39,47 @@
 .alter table ConfirmedPresenceEvents policy update
 @'[{"IsEnabled":true,"Source":"ProcessEventsRaw","Query":"ExtractConfirmedPresence()","IsTransactional":true,"PropagateIngestionProperties":true}]'
 
+.create table BoxIdentificationEvents (
+    eventId: string,
+    subjectId: string,
+    sourceId: string,
+    observationType: string,
+    plantId: string,
+    positionId: string,
+    confidence: real,
+    capturedAt: datetime,
+    producedAt: datetime,
+    publishedAt: datetime,
+    model: string,
+    provider: string
+)
+
+.create-or-alter function ExtractBoxIdentifications() {
+    ProcessEventsRaw
+    | where eventType == "ProcessEvent" and schemaVersion startswith "1."
+    | where observationType == "BoxIdentified"
+    | where gettype(value) == "string" and unit == "identifier"
+    | where subjectId matches regex @"^CASE-[0-9]{3}$" and tostring(value) == subjectId
+    | where gettype(observation.positionId) == "string"
+    | extend positionId = tostring(observation.positionId)
+    | where isnotempty(eventId) and isnotempty(sourceId) and isnotempty(plantId) and isnotempty(positionId)
+    | where isnotnull(capturedAt) and isnotnull(producedAt) and isnotnull(publishedAt)
+    | where confidence between (0.0 .. 1.0)
+    | project eventId, subjectId, sourceId, observationType, plantId, positionId,
+              confidence, capturedAt, producedAt, publishedAt, model, provider
+}
+
+.alter table BoxIdentificationEvents policy update
+@'[{"IsEnabled":true,"Source":"ProcessEventsRaw","Query":"ExtractBoxIdentifications()","IsTransactional":true,"PropagateIngestionProperties":true}]'
+
 .create async materialized-view with (backfill=true) CurrentPositionOccupancy on table ConfirmedPresenceEvents
 {
     ConfirmedPresenceEvents
     | summarize arg_max(capturedAt, *) by subjectId
+}
+
+.create async materialized-view with (backfill=true) LastCaseIdentification on table BoxIdentificationEvents
+{
+    BoxIdentificationEvents
+    | summarize arg_max(capturedAt, *) by plantId, subjectId
 }

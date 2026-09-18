@@ -6,6 +6,7 @@ import hashlib
 import logging
 import multiprocessing as mp
 import os
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from queue import Empty, Full
@@ -161,6 +162,59 @@ def normalize_detections(result: Any) -> list[RawDetection]:
     return [RawDetection(class_id, result.names[class_id], float(confidence),
                          dict(zip(("xMin", "yMin", "xMax", "yMax"), box, strict=True)))
             for box, confidence, class_id in zip(boxes, confidences, classes, strict=True)]
+
+
+def decode_qr_codes(payload: Any) -> list[str]:
+    """Decode distinct non-empty QR payloads from one camera frame."""
+    import cv2
+
+    detector = cv2.QRCodeDetector()
+    _, decoded, _, _ = detector.detectAndDecodeMulti(payload)
+    return list(dict.fromkeys(value.strip() for value in decoded if value and value.strip()))
+
+
+class QrProvider:
+    """Identify CASE-nnn labels using full-resolution OpenCV decoding, not YOLO."""
+
+    def __init__(self) -> None:
+        import cv2
+
+        self._detector = cv2.QRCodeDetector()
+        self.provider = f"opencv:{cv2.__version__}"
+        self.identity = "QRCodeDetector"
+
+    def infer(self, frame: Frame) -> RawInference:
+        """Return decoded case identities with normalized label geometry."""
+        import cv2
+
+        started = monotonic()
+        detections = []
+        succeeded = False
+        try:
+            _, decoded, polygons, _ = self._detector.detectAndDecodeMulti(frame.payload)
+            if polygons is not None:
+                height, width = frame.payload.shape[:2]
+                for case_id, polygon in zip(decoded, polygons, strict=True):
+                    if not re.fullmatch(r"CASE-[0-9]{3}", case_id):
+                        continue
+                    left, top = polygon.min(axis=0)
+                    right, bottom = polygon.max(axis=0)
+                    bounds = dict(zip(("xMin", "yMin", "xMax", "yMax"),
+                                      (float(left / width), float(top / height),
+                                       float(right / width), float(bottom / height)), strict=True))
+                    detections.append(RawDetection(0, "qr", 1.0, bounds, case_id=case_id))
+            succeeded = True
+        except (ValueError, TypeError, AttributeError, cv2.error):
+            detections = []
+            logger.warning("QR inference failed for source=%s; evidence unavailable", frame.source_id)
+        return RawInference(
+            inference_id=f"{frame.source_id}:{frame.sequence}", source_id=frame.source_id,
+            sequence=frame.sequence, captured_at=frame.captured_at,
+            produced_at=datetime.now(UTC).isoformat(), provider=self.provider, model=self.identity,
+            detections=detections, succeeded=succeeded,
+            qr_codes=list(dict.fromkeys(item.case_id for item in detections)),
+            metadata={"inferenceMilliseconds": (monotonic() - started) * 1000},
+        )
 
 
 class YoloProvider:

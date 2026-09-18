@@ -1,0 +1,86 @@
+.create-or-alter function with (folder='Tiger Twin') TigerTwinEntities() {
+    let types = external_table('Twin_entitytype')
+        | where Inactive == false
+        | project EntityTypeId=Id, EntityType=Name;
+    let descriptors = external_table('Twin_propertydescriptor')
+        | where ValidFrom <= now() and (isnull(ValidTo) or ValidTo > now())
+        | project PropertyDescriptorId=Id, PropertyName=Name;
+    let properties = external_table('Twin_stringpropertyvalue')
+        | where ValidFrom <= now() and (isnull(ValidTo) or ValidTo > now())
+        | summarize arg_max(ValidFrom, *) by EntityInstanceId1, EntityInstanceId2, PropertyDescriptorId
+        | join kind=inner descriptors on PropertyDescriptorId
+        | summarize Properties=make_bag(bag_pack(PropertyName, Value)) by EntityInstanceId1, EntityInstanceId2;
+    external_table('Twin_entityinstance')
+    | project EntityInstanceId1=Id1, EntityInstanceId2=Id2, EntityTypeId, DisplayId=EntityInstanceDisplayId
+    | join kind=inner types on EntityTypeId
+    | join kind=leftouter properties on EntityInstanceId1, EntityInstanceId2
+    | project EntityInstanceId1, EntityInstanceId2, EntityType, DisplayId, Properties
+};
+
+.create-or-alter function with (folder='Tiger Twin') TigerTwinRelationships() {
+    let types = external_table('Twin_entitytyperelationship')
+        | where Inactive == false
+        | project EntityTypeRelationshipId=Id, Relationship=Name;
+    external_table('Twin_relationshipinstance')
+    | join kind=inner types on EntityTypeRelationshipId
+    | project Relationship, FirstEntityInstanceId1, FirstEntityInstanceId2, SecondEntityInstanceId1, SecondEntityInstanceId2
+    | distinct *
+};
+
+.create-or-alter function with (folder='Tiger Twin') TigerTwinCaseHistory() {
+    let cases = TigerTwinEntities()
+        | where EntityType == 'Case'
+        | project EntityInstanceId1, EntityInstanceId2, CaseId=tostring(Properties.caseId);
+    let descriptors = external_table('Twin_timeseriespropertydescriptor')
+        | where ValidFrom <= now() and (isnull(ValidTo) or ValidTo > now())
+        | project TimeseriesPropertyDescriptorId=Id, PropertyName=Name;
+    let instances = external_table('Twin_timeseriesinstancedescriptor')
+        | project TimeseriesInstanceDescriptorId1=Id1, TimeseriesInstanceDescriptorId2=Id2,
+            TimeseriesPropertyDescriptorId, EntityInstanceId1, EntityInstanceId2
+        | join kind=inner descriptors on TimeseriesPropertyDescriptorId
+        | join kind=inner cases on EntityInstanceId1, EntityInstanceId2;
+    external_table('Twin_stringtimeseriesvalue')
+    | join kind=inner instances on TimeseriesInstanceDescriptorId1, TimeseriesInstanceDescriptorId2
+    | summarize Areas=make_set_if(Value, PropertyName == 'lastIdentifiedArea'),
+        Cameras=make_set_if(Value, PropertyName == 'lastIdentifiedSource'),
+        EventIds=make_set_if(Value, PropertyName == 'eventId')
+        by EntityInstanceId1, EntityInstanceId2, CaseId, LastObservedAt=PreciseTimestamp
+    | extend ObservationStatus=iff(array_length(Areas) == 1 and array_length(Cameras) == 1 and array_length(EventIds) == 1,
+        'Identified', 'Incomplete or conflicting observation')
+    | project EntityInstanceId1, EntityInstanceId2, CaseId, LastObservedAt,
+        LastObservedArea=iff(array_length(Areas) == 1, tostring(Areas[0]), ''),
+        Camera=iff(array_length(Cameras) == 1, tostring(Cameras[0]), ''), EventIds, ObservationStatus
+};
+
+.create-or-alter function with (folder='Tiger Twin') TigerTwinCaseLocations() {
+    let entities = TigerTwinEntities();
+    let relationships = TigerTwinRelationships();
+    let plants = entities | where EntityType == 'Plant'
+        | project PlantId1=EntityInstanceId1, PlantId2=EntityInstanceId2, Plant=tostring(Properties.plantName);
+    let cells = entities | where EntityType == 'Cell'
+        | project CellId1=EntityInstanceId1, CellId2=EntityInstanceId2, Cell=tostring(Properties.cellName);
+    let areas = entities | where EntityType == 'MonitoredPosition'
+        | project AreaId1=EntityInstanceId1, AreaId2=EntityInstanceId2,
+            LastObservedArea=tostring(Properties.positionId), Area=tostring(Properties.positionName);
+    let cellPlants = relationships | where Relationship == 'containsCell'
+        | project PlantId1=FirstEntityInstanceId1, PlantId2=FirstEntityInstanceId2,
+            CellId1=SecondEntityInstanceId1, CellId2=SecondEntityInstanceId2
+        | join kind=inner plants on PlantId1, PlantId2
+        | join kind=inner cells on CellId1, CellId2;
+    let areaContext = relationships | where Relationship == 'monitorsPosition'
+        | project CellId1=FirstEntityInstanceId1, CellId2=FirstEntityInstanceId2,
+            AreaId1=SecondEntityInstanceId1, AreaId2=SecondEntityInstanceId2
+        | join kind=inner cellPlants on CellId1, CellId2
+        | join kind=inner areas on AreaId1, AreaId2
+        | project LastObservedArea, Area, Cell, Plant;
+    let latestObservations = TigerTwinCaseHistory()
+        | summarize arg_max(LastObservedAt, *) by EntityInstanceId1, EntityInstanceId2;
+    entities | where EntityType == 'Case'
+    | project EntityInstanceId1, EntityInstanceId2, CaseId=tostring(Properties.caseId)
+    | join kind=leftouter latestObservations on EntityInstanceId1, EntityInstanceId2
+    | join kind=leftouter areaContext on LastObservedArea
+    | extend Status=case(isnull(LastObservedAt), 'No mapped identification',
+        ObservationStatus != 'Identified', ObservationStatus,
+        isempty(Plant) or isempty(Cell), 'Observed area lacks twin relationships', 'Last observed')
+    | project CaseId, LastObservedArea, Area, Cell, Plant, LastObservedAt, Camera, Status
+}

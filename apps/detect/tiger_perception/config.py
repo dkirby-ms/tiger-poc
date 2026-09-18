@@ -39,10 +39,10 @@ class Source(Settings):
 class Perception(Settings):
     """Local model and normalized detection selection."""
 
-    provider: Literal["ultralytics"]
-    model: str = Field(min_length=1)
-    labels: list[str] = Field(min_length=1)
-    observationType: Literal["PalletPresent", "ObjectPresent"]
+    provider: Literal["ultralytics", "qr"]
+    model: str | None = Field(default=None, min_length=1)
+    labels: list[str] = Field(default_factory=lambda: ["qr"], min_length=1)
+    observationType: Literal["PalletPresent", "ObjectPresent", "BoxIdentified"]
     sampleEveryFrames: int = Field(ge=1)
     device: str = "cpu"
     imageSize: int = Field(default=640, ge=32, le=1920)
@@ -51,6 +51,11 @@ class Perception(Settings):
     @model_validator(mode="after")
     def validate_labels(self) -> Perception:
         """Prevent a household surrogate from claiming pallet detection."""
+        if self.provider == "qr":
+            if self.model is not None or self.labels != ["qr"] or self.observationType != "BoxIdentified":
+                raise ValueError("QR workloads require BoxIdentified, qr labels, and no model")
+        elif self.model is None or self.observationType == "BoxIdentified":
+            raise ValueError("YOLO workloads require a model and a presence observation type")
         if any(not label.strip() for label in self.labels):
             raise ValueError("labels must be non-empty")
         if self.observationType == "PalletPresent" and self.labels != ["pallet"]:
@@ -139,7 +144,8 @@ def load_workload(path: Path) -> Workload:
     for owner, field in ((workload.spec.perception, "model"),
                          (workload.spec.destination, "path"),
                          (workload.spec.destination, "statusPath")):
-        setattr(owner, field, str((path.resolve().parent / getattr(owner, field)).resolve()))
+        if getattr(owner, field) is not None:
+            setattr(owner, field, str((path.resolve().parent / getattr(owner, field)).resolve()))
     outputs = {workload.spec.destination.path, workload.spec.destination.statusPath,
                str(Path(workload.spec.destination.statusPath).with_suffix(".jpg"))}
     if len(outputs) != 3 or workload.spec.perception.model in outputs or str(path.resolve()) in outputs:

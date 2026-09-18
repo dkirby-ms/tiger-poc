@@ -53,6 +53,16 @@ def test_given_same_camera_when_starting_viewer_then_reject():
         create_server([workload, workload], 0)
 
 
+def test_given_qr_and_chair_examples_when_viewing_together_then_keep_separate_identities():
+    workloads = [load_workload(MANIFESTS / name) for name in ("cell-a.yaml", "cell-c-qr.yaml")]
+
+    with create_server(workloads, 0) as server:
+        assert server.server_port > 0
+        assert workloads[0].spec.perception.labels == ["chair"]
+        assert workloads[1].spec.perception.model is None
+        assert len({item.spec.destination.path for item in workloads}) == 2
+
+
 def test_given_viewer_when_requesting_routes_then_serve_only_public_artifacts():
     workload = load_workload(MANIFESTS / "cell-a.yaml")
     with create_server([workload], 0) as server:
@@ -70,6 +80,37 @@ def test_given_viewer_when_requesting_routes_then_serve_only_public_artifacts():
             assert "uriFrom" not in json.dumps(payload)
             with pytest.raises(HTTPError) as error:
                 urlopen(base + "/../../apps/.env")
+            assert error.value.code == 404
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
+
+
+def test_given_jeep_and_qr_scenarios_when_requesting_previews_then_keep_manifest_order(tmp_path):
+    workloads = [load_workload(MANIFESTS / name) for name in ("cell-a-jeep.yaml", "cell-c-qr.yaml")]
+    for index, workload in enumerate(workloads):
+        workload.spec.destination.statusPath = str(tmp_path / f"status-{index}.json")
+        Path(workload.spec.destination.statusPath).with_suffix(".jpg").write_bytes(f"preview-{index}".encode())
+
+    with create_server(workloads, 0) as server:
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        try:
+            with urlopen(base + "/?scenario=cell-c-camera-01") as response:
+                page = response.read().decode()
+            assert 'id="scenario-tabs"' in page
+            assert 'role="tablist" aria-label="Use cases"' in page
+            assert 'role="tabpanel" tabindex="0" hidden' in page
+            assert 'id="scenario-select"' not in page
+            with urlopen(base + "/api/cells") as response:
+                cells = json.load(response)
+            assert [cell["sourceId"] for cell in cells] == [workload.spec.source.id for workload in workloads]
+            for index in range(2):
+                with urlopen(base + f"/preview/{index}.jpg") as response:
+                    assert response.read() == f"preview-{index}".encode()
+            with pytest.raises(HTTPError) as error:
+                urlopen(base + "/preview/2.jpg")
             assert error.value.code == 404
         finally:
             server.shutdown()

@@ -28,7 +28,7 @@ from urllib.parse import urljoin, urlparse
 from uuid import UUID
 
 import httpx
-from azure.core.exceptions import AzureError
+from azure.core.exceptions import AzureError, ResourceNotFoundError
 from azure.identity import AzureCliCredential
 from azure.storage.filedatalake import DataLakeServiceClient
 
@@ -64,6 +64,11 @@ ITEMS = {
     "backing": ("Lakehouse", "lakehouses", "twin_data"),
     "eventstream": ("Eventstream", "eventstreams", "ingest"),
     "twin": ("DigitalTwinBuilder", "digitalTwinBuilders", "twin"),
+    "flow_ondemand": (
+        "DigitalTwinBuilderFlow",
+        "digitalTwinBuilderFlows",
+        "twin_OnDemand",
+    ),
     **{
         f"flow_{group}": (
             "DigitalTwinBuilderFlow",
@@ -77,6 +82,14 @@ ITEMS = {
 
 class DeploymentError(RuntimeError):
     """A deployment failed without deleting any resources."""
+
+
+class FabricRequestError(DeploymentError):
+    """A Fabric request returned a non-success HTTP response."""
+
+    def __init__(self, message: str, status_code: int) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def encode_definition(parts: dict[str, Any]) -> dict:
@@ -174,11 +187,34 @@ class FabricClient:
                 )
             self.delay(response, deadline)
         if not 200 <= response.status_code < 300:
-            raise DeploymentError(
+            try:
+                body = response.json()
+            except ValueError:
+                body = {}
+            if not isinstance(body, dict):
+                body = {}
+            error_code = body.get("errorCode")
+            if not isinstance(error_code, str) or not re.fullmatch(
+                r"[A-Za-z][A-Za-z0-9_.-]{0,127}", error_code
+            ):
+                error_code = "unavailable"
+            request_id = response.headers.get("request-id") or body.get("requestId")
+            try:
+                request_id = str(UUID(str(request_id)))
+            except ValueError:
+                request_id = "unavailable"
+            guidance = (
+                "Fabric rejected this job type. Confirm a supported execution job type "
+                "before retrying; --definitions-only provisions without initializing mappings."
+                if error_code == "InvalidJobType"
+                else "Inspect the item and permissions before retrying."
+            )
+            raise FabricRequestError(
                 f"Fabric {method} {parsed.path} returned HTTP {response.status_code}; "
-                f"request ID: {response.headers.get('request-id', 'unavailable')}. "
-                "Inspect the item and permissions before retrying."
-                + self.save_failure(response, f"{method} {parsed.path}")
+                f"error code: {error_code}; request ID: {request_id}. "
+                + guidance
+                + self.save_failure(response, f"{method} {parsed.path}"),
+                response.status_code,
             )
         return response
 
@@ -412,6 +448,112 @@ class Deployment:
             raise DeploymentError("KQL reported a command error; deployment stopped.")
         return body
 
+    def configure_twin_sources(self) -> None:
+        """Expose twin output as distinct Eventhouse shortcuts for analytics."""
+        for table in (
+            "entityinstance",
+            "entitytype",
+            "propertydescriptor",
+            "stringpropertyvalue",
+            "relationshipinstance",
+            "entitytyperelationship",
+            "timeseriespropertydescriptor",
+            "timeseriesinstancedescriptor",
+            "stringtimeseriesvalue",
+        ):
+            self.once(
+                f"twin_shortcut_{table}",
+                lambda table=table: self.client.request(
+                    "POST",
+                    f"workspaces/{self.workspace}/items/{self.state['items']['database']}/shortcuts",
+                    json={
+                        "path": "Tables",
+                        "name": f"Twin_{table}",
+                        "target": {
+                            "oneLake": {
+                                "workspaceId": self.workspace,
+                                "itemId": self.state["items"]["backing"],
+                                "path": f"Tables/{table}",
+                            }
+                        },
+                    },
+                ),
+            )
+            self.once(
+                f"twin_external_{table}",
+                lambda table=table: self.kql(
+                    f".create-or-alter external table Twin_{table} kind=delta ("
+                    + json.dumps(
+                        f"https://onelake.dfs.fabric.microsoft.com/{self.workspace}/"
+                        f"{self.state['items']['database']}/Tables/Twin_{table};impersonate"
+                    )
+                    + ")"
+                ),
+            )
+
+    def configure_twin_projections(self) -> None:
+        """Install repeatable query functions over the twin backing tables."""
+        self.configure_twin_sources()
+        script = (
+            Path(self.config["artifactRoot"]) / "kql/04_twin_projection.kql"
+        ).read_text(encoding="utf-8")
+        for command in script.split(";\n\n"):
+            self.kql(command)
+
+    def export_dashboard(self) -> Path:
+        """Render a deployment-specific dashboard without changing the template."""
+        database_id = self.state["items"]["database"]
+        database = self.client.request(
+            "GET", f"workspaces/{self.workspace}/kqlDatabases/{database_id}"
+        ).json()
+        endpoint = database["properties"]["queryServiceUri"].rstrip("/")
+        parsed = urlparse(endpoint)
+        if (
+            parsed.scheme != "https"
+            or not parsed.netloc.endswith(".kusto.fabric.microsoft.com")
+            or parsed.username
+            or parsed.password
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise DeploymentError("Fabric returned an unexpected KQL query endpoint.")
+        template = (
+            Path(self.config["artifactRoot"])
+            / "dashboards/fabric_realtime_dashboard.json"
+        )
+        dashboard = json.loads(template.read_text(encoding="utf-8"))
+        if len(dashboard["dataSources"]) != 1:
+            raise DeploymentError(
+                "Dashboard template must have exactly one data source."
+            )
+        source_id = dashboard["dataSources"][0]["id"]
+        if any(
+            query["dataSource"] != {"kind": "inline", "dataSourceId": source_id}
+            for query in dashboard["queries"]
+        ):
+            raise DeploymentError(
+                "Dashboard queries must use the template data source."
+            )
+        dashboard["dataSources"] = [
+            {
+                "id": source_id,
+                "kind": "kusto-trident",
+                "name": database["displayName"],
+                "clusterUri": endpoint,
+                "databaseArtifactId": database_id,
+                "database": database_id,
+                "workspace": self.workspace,
+            }
+        ]
+        output = self.state_path.with_name(self.state_path.stem + ".dashboard.json")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        temporary = output.with_suffix(".tmp")
+        temporary.write_text(json.dumps(dashboard, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(output)
+        LOGGER.info("Configured dashboard ready to import: %s", output)
+        return output
+
     def seed(self, upload: Callable[[str, str, str], None]) -> None:
         """Upload and load reference CSV tables, using overwrite for safe retries."""
         lakehouse = self.state["items"]["source"]
@@ -461,6 +603,13 @@ class Deployment:
                 f"with (IsEnabled=true, Backfill=true, TargetLatencyInMinutes={self.config['targetLatencyMinutes']})"
             ),
         )
+        self.once(
+            "mirroring_qr",
+            lambda: self.kql(
+                ".alter-merge table BoxIdentificationEvents policy mirroring dataformat=parquet "
+                f"with (IsEnabled=true, Backfill=true, TargetLatencyInMinutes={self.config['targetLatencyMinutes']})"
+            ),
+        )
         source = self.create("source")
         backing = self.create("backing")
         self.seed(upload)
@@ -482,6 +631,24 @@ class Deployment:
                 },
             ),
         )
+        self.once(
+            "shortcut_qr",
+            lambda: self.client.request(
+                "POST",
+                f"workspaces/{self.workspace}/items/{source}/shortcuts?shortcutConflictPolicy=CreateOrOverwrite",
+                json={
+                    "path": "Tables",
+                    "name": "BoxIdentificationEvents",
+                    "target": {
+                        "oneLake": {
+                            "workspaceId": self.workspace,
+                            "itemId": database,
+                            "path": "Tables/BoxIdentificationEvents",
+                        }
+                    },
+                },
+            ),
+        )
         topology = substitute(
             json.loads((DEFINITIONS / "eventstream.json").read_text()),
             {
@@ -493,6 +660,16 @@ class Deployment:
         self.create("eventstream", {"eventstream.json": topology})
         parts, groups = twin_definition(self.config, self.workspace, source, backing)
         twin = self.create("twin", parts)
+        self.create(
+            "flow_ondemand",
+            {
+                "definition.json": {
+                    "DigitalTwinBuilderId": twin,
+                    "OperationIds": [],
+                    "IsOnDemand": True,
+                }
+            },
+        )
         for group, operations in groups.items():
             self.create(
                 f"flow_{group}",
@@ -505,23 +682,112 @@ class Deployment:
                 },
             )
         LOGGER.info(
-            "Definitions and reference tables deployed. Twin mapping jobs have NOT run. State: %s",
+            "Definitions and reference tables deployed. State: %s",
             self.state_path,
         )
+
+    def wait_for_sources(self, filesystem: Any, group: str) -> None:
+        """Wait for Delta logs through the mapping source lakehouse."""
+        tables = (
+            ("ConfirmedPresenceEvents", "BoxIdentificationEvents")
+            if group == "timeseries"
+            else tuple(reference_tables(self.config))
+        )
+        pending = set(tables)
+        deadline = time.monotonic() + self.client.timeout
+        while pending:
+            for table in sorted(pending):
+                try:
+                    entries = filesystem.get_paths(
+                        path=f"{self.state['items']['source']}/Tables/{table}/_delta_log",
+                        recursive=False,
+                    )
+                    if any(
+                        not entry.is_directory
+                        and entry.name.endswith((".json", ".checkpoint.parquet"))
+                        for entry in entries
+                    ):
+                        pending.remove(table)
+                except ResourceNotFoundError:
+                    continue
+            if not pending:
+                return
+            LOGGER.info(
+                "Waiting for OneLake source tables: %s", ", ".join(sorted(pending))
+            )
+            try:
+                self.client.delay(
+                    httpx.Response(200, headers={"Retry-After": "5"}), deadline
+                )
+            except DeploymentError as error:
+                raise DeploymentError(
+                    "Source tables are not ready: "
+                    + ", ".join(sorted(pending))
+                    + ". Verify publishers, Eventstream ingestion, and OneLake availability; "
+                    "rerun apply with the same checkpoint. No mapping was submitted for this stage."
+                ) from error
+
+    def initialize(
+        self, job_type: str, wait_for_sources: Callable[[str], None]
+    ) -> None:
+        """Run initial mappings in dependency order, resuming completed stages."""
+        self.preflight()
+        if any(key not in self.state["items"] for key in ITEMS):
+            raise DeploymentError("Finish provisioning before initializing mappings.")
+        if self.state.get("schedules"):
+            if all(
+                self.state.get("jobs", {}).get(group, {}).get("status") == "Completed"
+                for group in ("reference", "relationships", "timeseries")
+            ):
+                LOGGER.info(
+                    "Twin initialization already completed; schedules unchanged."
+                )
+                return
+            raise DeploymentError(
+                "Schedules exist; refusing overlapping initialization."
+            )
+        for group in ("reference", "relationships", "timeseries"):
+            if self.state.get("jobs", {}).get(group, {}).get("status") != "Completed":
+                LOGGER.info("Initializing twin: %s", group)
+                if self.state.get("jobs", {}).get(group, {}).get("status") not in {
+                    "NotStarted",
+                    "InProgress",
+                    "Submitting",
+                }:
+                    wait_for_sources(group)
+                self.run_flow(group, job_type)
+            if group == "relationships":
+                self.state["referenceInitialized"] = True
+                self.save()
+        LOGGER.info("Fabric setup complete: all twin mapping stages completed.")
 
     def run_flow(self, group: str, job_type: str) -> None:
         """Start a confirmed flow job type, or resume polling a recorded active job."""
         jobs = self.state.setdefault("jobs", {})
         previous = jobs.get(group, {})
+        if previous.get("status") == "Submitting":
+            raise DeploymentError(
+                f"Flow {group} submission has an unknown outcome. Inspect Fabric job history "
+                "and reconcile the checkpoint before retrying; no duplicate job was submitted."
+            )
         if previous.get("status") in {"NotStarted", "InProgress"}:
             location = previous["location"]
             response = httpx.Response(202, headers={"Retry-After": "1"})
         else:
             item = self.state["items"][f"flow_{group}"]
-            response = self.client.request(
-                "POST",
-                f"workspaces/{self.workspace}/items/{item}/jobs/{job_type}/instances",
-            )
+            jobs[group] = {"status": "Submitting", "jobType": job_type}
+            self.save()
+            try:
+                response = self.client.request(
+                    "POST",
+                    f"workspaces/{self.workspace}/items/{item}/jobs/{job_type}/instances",
+                )
+            except FabricRequestError as error:
+                if error.status_code in {400, 401, 403, 404, 405, 422}:
+                    jobs[group]["status"] = "Rejected"
+                    jobs[group]["statusCode"] = error.status_code
+                    self.save()
+                raise
             location = response.headers.get("location")
             if response.status_code != 202 or not location:
                 raise DeploymentError(
@@ -655,10 +921,15 @@ def create_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--job-type",
-        help="Confirmed DigitalTwinBuilderFlow job type (no assumed preview default)",
+        help="Override the DigitalTwinBuilderFlow job type (default: ExecuteOperations)",
     )
     parser.add_argument(
-        "--phase", choices=["reference", "events", "all"], default="reference"
+        "--definitions-only",
+        action="store_true",
+        help="Compatibility flag: apply always provisions without running mappings",
+    )
+    parser.add_argument(
+        "--phase", choices=["reference", "events", "all"], default="all"
     )
     parser.add_argument(
         "--until", help="Required schedule expiration, e.g. 2026-10-01T00:00:00Z"
@@ -679,13 +950,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         config = load_config(args.config)
         tables = reference_tables(config)
-        job_type = args.job_type or config.get("flowJobType")
-        if args.command in {"run", "schedule"} and (
-            not job_type or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", job_type)
-        ):
-            raise ValueError(
-                "A confirmed --job-type is required; DigitalTwinBuilderFlow's preview execution contract is not documented"
-            )
+        job_type = args.job_type or config.get("flowJobType") or "ExecuteOperations"
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", job_type):
+            raise ValueError("Invalid flow job type")
+        if args.definitions_only and args.command != "apply":
+            raise ValueError("--definitions-only is supported only with apply")
         if args.command == "schedule" and not args.until:
             raise ValueError("--until is required to bound the schedule lifetime")
         if args.command == "plan":
@@ -706,7 +975,7 @@ def main(argv: list[str] | None = None) -> int:
                             for key, spec in ITEMS.items()
                         ],
                         "referenceTables": list(tables),
-                        "flowExecution": "requires a confirmed flow job type; apply does not start jobs",
+                        "flowExecution": "apply provisions only; mapping execution is a separate operational step",
                     },
                     indent=2,
                 )
@@ -773,6 +1042,12 @@ def main(argv: list[str] | None = None) -> int:
                     )
 
                 deployment.apply(upload)
+                deployment.configure_twin_projections()
+                deployment.export_dashboard()
+                LOGGER.info(
+                    "Provisioning complete. Twin mappings were not run; initialize "
+                    "and run mappings in Fabric before expecting twin output."
+                )
         return 0
     except (ValueError, KeyError, OSError) as error:
         LOGGER.error("Configuration error: %s", error)

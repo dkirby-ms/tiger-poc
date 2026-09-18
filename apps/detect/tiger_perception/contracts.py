@@ -28,6 +28,7 @@ class RawDetection:
     label: str
     confidence: float
     bounding_box: dict[str, float]
+    case_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,7 @@ class RawInference:
     detections: list[RawDetection] = field(default_factory=list)
     metadata: dict[str, JsonValue] = field(default_factory=dict)
     succeeded: bool = True
+    qr_codes: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
