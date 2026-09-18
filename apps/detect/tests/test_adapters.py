@@ -107,6 +107,28 @@ def test_given_textured_image_when_quality_checked_then_usable():
     assert frame_quality(payload, Capture())
 
 
+def test_given_case_label_when_yolo_infers_then_return_only_object_detections():
+    encoded = cv2.QRCodeEncoder_create().encode("CASE-001")
+    image = cv2.resize(np.pad(encoded, 4, constant_values=255), None, fx=8, fy=8,
+                       interpolation=cv2.INTER_NEAREST)
+    result = SimpleNamespace(names={2: "car"}, boxes=SimpleNamespace(
+        xyxyn=Array([[0.2, 0.3, 0.7, 0.8]]), conf=Array([0.9]), cls=Array([2])))
+    provider = object.__new__(YoloProvider)
+    provider._model = SimpleNamespace(predict=lambda *args, **kwargs: [result])
+    provider.settings = Perception(provider="ultralytics", model="test.pt", labels=["car"],
+                                     observationType="ObjectPresent", sampleEveryFrames=1)
+    provider.confidence = 0.5
+    provider.provider = "test-provider"
+    provider.identity = "test-model"
+    frame = Frame("cell-a-camera-01", 1, "2026-09-18T12:00:00+00:00", image)
+
+    inference = provider.infer(frame)
+
+    assert inference.succeeded
+    assert [detection.label for detection in inference.detections] == ["car"]
+    assert inference.qr_codes == []
+
+
 def test_given_provider_error_when_inferring_then_explicit_failure():
     def fail(*args, **kwargs):
         raise RuntimeError("private provider failure")

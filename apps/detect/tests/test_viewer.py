@@ -98,7 +98,11 @@ def test_given_jeep_and_qr_scenarios_when_requesting_previews_then_keep_manifest
         base = f"http://127.0.0.1:{server.server_port}"
         try:
             with urlopen(base + "/?scenario=cell-c-camera-01") as response:
-                assert 'id="scenario-select"' in response.read().decode()
+                page = response.read().decode()
+            assert 'id="scenario-tabs"' in page
+            assert 'role="tablist" aria-label="Use cases"' in page
+            assert 'role="tabpanel" tabindex="0" hidden' in page
+            assert 'id="scenario-select"' not in page
             with urlopen(base + "/api/cells") as response:
                 cells = json.load(response)
             assert [cell["sourceId"] for cell in cells] == [workload.spec.source.id for workload in workloads]

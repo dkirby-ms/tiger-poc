@@ -75,7 +75,6 @@ services:
   publisher:
     <<: *runtime
     restart: "no"
-    profiles: [fabric]
     command:
       - uv
       - run
@@ -89,6 +88,10 @@ services:
       - --checkpoint
       - /var/lib/tiger-publisher/delivery.json
       - --live-fabric
+    environment:
+      FABRIC_EVENTSTREAM_CONNECTION_STRING_FILE: /run/secrets/fabric_connection_string
+    secrets:
+      - fabric_connection_string
     volumes:
       - type: bind
         source: ../data
@@ -101,7 +104,6 @@ services:
   publisher-qr:
     <<: *runtime
     restart: "no"
-    profiles: [fabric]
     command:
       - uv
       - run
@@ -115,6 +117,10 @@ services:
       - --checkpoint
       - /var/lib/tiger-publisher/delivery.json
       - --live-fabric
+    environment:
+      FABRIC_EVENTSTREAM_CONNECTION_STRING_FILE: /run/secrets/fabric_connection_string
+    secrets:
+      - fabric_connection_string
     volumes:
       - type: bind
         source: ../data
@@ -127,3 +133,7 @@ services:
 volumes:
   publisher-state:
   publisher-qr-state:
+
+secrets:
+  fabric_connection_string:
+    file: ./secrets/fabric-connection-string

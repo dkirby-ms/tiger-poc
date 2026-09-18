@@ -247,10 +247,8 @@ class YoloProvider:
 
         succeeded = False
         detections = []
-        qr_codes = []
         started = monotonic()
         try:
-            qr_codes = decode_qr_codes(frame.payload)
             results = self._model.predict(frame.payload, conf=self.confidence,
                                           imgsz=self.settings.imageSize, device=self.settings.device,
                                           verbose=False)
@@ -263,6 +261,5 @@ class YoloProvider:
             sequence=frame.sequence, captured_at=frame.captured_at,
             produced_at=datetime.now(UTC).isoformat(), provider=self.provider, model=self.identity,
             detections=detections, succeeded=succeeded,
-            qr_codes=qr_codes,
             metadata={"inferenceMilliseconds": (monotonic() - started) * 1000},
         )

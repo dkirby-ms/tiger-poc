@@ -513,11 +513,13 @@ def test_given_legacy_checkpoint_when_resuming_then_require_reconciliation(tmp_p
     source, checkpoint = tmp_path / "events.jsonl", tmp_path / "state.json"
     original = json.dumps({"version": 1, "inputs": [str(source)], "mode": "live", "positions": {}})
     checkpoint.write_text(original)
+    follower = relay.JsonlFollower([source], checkpoint, dry_run=False)
 
-    with pytest.raises(SinkError, match="checkpoint"), relay.JsonlFollower([source], checkpoint, dry_run=False):
+    with pytest.raises(SinkError, match="Unsupported delivery checkpoint version.*reconcile"), follower:
         pytest.fail("Legacy checkpoint was accepted")
 
     assert checkpoint.read_text() == original
+    assert follower._lock is None
 
 
 def test_given_checkpoint_owner_when_second_follower_starts_then_refuse(tmp_path: Path) -> None:
@@ -535,7 +537,8 @@ def test_given_dry_run_checkpoint_when_live_starts_then_refuse(tmp_path: Path) -
     checkpoint = tmp_path / "delivery.json"
     with relay.JsonlFollower([source], checkpoint, dry_run=True) as follower:
         follower.poll_once(lambda event: True)
-    with pytest.raises(SinkError, match="checkpoint"), relay.JsonlFollower([source], checkpoint, dry_run=False):
+    with (pytest.raises(SinkError, match="does not match inputs or publication mode"),
+          relay.JsonlFollower([source], checkpoint, dry_run=False)):
         pytest.fail("Dry run was reused as live delivery")
 
 

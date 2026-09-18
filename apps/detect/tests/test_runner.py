@@ -164,6 +164,39 @@ def test_given_capture_reconnect_when_case_pending_then_start_new_confirmation(q
     assert qr_runtime.sink.published_count == 1
 
 
+@pytest.mark.parametrize("manifest,label,expected", [
+    ("cell-a-jeep.yaml", "car", []),
+    ("cell-c-qr.yaml", "qr", ["CASE-001"]),
+])
+def test_given_case_metadata_when_rendering_then_show_labels_only_for_qr_workloads(
+        tmp_path, monkeypatch, manifest, label, expected):
+    import cv2
+    import numpy as np
+    from tiger_perception.contracts import Frame
+
+    workload = load_workload(MANIFESTS / manifest)
+    workload.spec.destination.path = str(tmp_path / "events.jsonl")
+    workload.spec.destination.statusPath = str(tmp_path / "status.json")
+    runtime = WorkloadRuntime(workload)
+    now = datetime.now(UTC)
+    frame = Frame(runtime.rule.source_id, 1, now.isoformat(), np.zeros((240, 320, 3), dtype=np.uint8))
+    detection = RawDetection(0, label, 1.0,
+                             {"xMin": 0.3, "yMin": 0.3, "xMax": 0.6, "yMax": 0.6},
+                             case_id="CASE-001")
+    inference = RawInference("test", frame.source_id, 1, frame.captured_at, frame.captured_at,
+                             "fixture", "fixture", [detection], qr_codes=["CASE-001"])
+    drawn_labels = []
+    monkeypatch.setattr(cv2, "putText", lambda image, text, *args: drawn_labels.append(text))
+
+    runtime.process(inference, now=now)
+    runtime.write_status(force=True)
+    runtime.write_preview(frame, inference)
+
+    assert drawn_labels == expected
+    assert json.loads(Path(workload.spec.destination.statusPath).read_text())["qrCodes"] == expected
+    assert Path(workload.spec.destination.statusPath).with_suffix(".jpg").is_file()
+
+
 def test_given_two_workloads_when_states_change_then_outputs_remain_independent(tmp_path):
     runtimes = []
     for cell in ("a", "b"):

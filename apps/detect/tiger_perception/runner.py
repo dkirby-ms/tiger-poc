@@ -106,7 +106,7 @@ class WorkloadRuntime:
         self.frame_age_seconds = (now - datetime.fromisoformat(inference.captured_at)).total_seconds()
         self.failed_inferences += int(not inference.succeeded)
         self._detections = [asdict(detection) for detection in inference.detections]
-        self._qr_codes = inference.qr_codes
+        self._qr_codes = []
         observation = self.rule.observe(inference, now=now)
         self.reason = "" if self.rule.availability != "unavailable" else "Inference failed or stale"
         if self.workload.spec.perception.provider == "qr":
@@ -207,14 +207,12 @@ class WorkloadRuntime:
             cv2.rectangle(image, (int(left * width), int(top * height)),
                           (int(right * width), int(bottom * height)), color, 3)
         for item in inference.detections:
-            if item.case_id and self.rule.policy.matches(item):
+            if (self.workload.spec.perception.provider == "qr"
+                    and item.case_id and self.rule.policy.matches(item)):
                 origin = (min(width - 110, max(0, int(item.bounding_box["xMin"] * width))),
                           max(20, int(item.bounding_box["yMin"] * height) - 8))
                 cv2.putText(image, item.case_id, origin, cv2.FONT_HERSHEY_SIMPLEX,
                             0.6, (0, 80, 220), 2, cv2.LINE_AA)
-        if inference.qr_codes and self.workload.spec.perception.provider != "qr":
-            cv2.putText(image, "QR: " + ", ".join(inference.qr_codes), (12, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 80, 220), 2, cv2.LINE_AA)
         encoded, payload = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 80])
         if encoded:
             atomic_write(Path(self.workload.spec.destination.statusPath).with_suffix(".jpg"), payload.tobytes())

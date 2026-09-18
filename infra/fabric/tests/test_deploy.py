@@ -904,6 +904,54 @@ def test_given_apply_cli_when_invoked_then_only_provisioning_runs(
     assert calls == ["apply", "twin_projections", "dashboard"]
 
 
+def test_given_changed_artifacts_when_dashboard_exported_then_only_read_metadata(
+    tmp_path, monkeypatch
+) -> None:
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    from infra.fabric import deploy
+
+    workspace = "00000000-0000-4000-8000-000000000001"
+    database_id = "00000000-0000-4000-8000-000000000003"
+    state = tmp_path / "custom.json"
+    original = json.dumps({
+        "version": 1, "workspaceId": workspace, "fingerprint": "older-artifacts",
+        "items": {"database": database_id}, "completed": ["existing-step"],
+    })
+    state.write_text(original)
+    requests = []
+
+    def respond(request):
+        requests.append((request.method, request.url.path))
+        return httpx.Response(200, json={
+            "displayName": "example_db",
+            "properties": {"queryServiceUri": "https://example.kusto.fabric.microsoft.com"},
+        })
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Dashboard export must not reconcile deployment artifacts or access storage")
+
+    monkeypatch.setattr(deploy, "Deployment", unexpected)
+    monkeypatch.setattr(deploy, "reference_tables", unexpected)
+    monkeypatch.setattr(deploy, "DataLakeServiceClient", unexpected)
+    monkeypatch.setattr(deploy.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(
+        stdout=json.dumps({"user": {"type": "user"}, "tenantId": workspace})))
+    monkeypatch.setattr(deploy, "AzureCliCredential", lambda **kwargs: nullcontext(
+        SimpleNamespace(get_token=lambda scope: SimpleNamespace(token="test-token"))))
+    monkeypatch.setattr(deploy, "create_http_client", lambda **kwargs: httpx.Client(
+        transport=httpx.MockTransport(respond)))
+
+    result = main(["export-dashboard", "--workspace", workspace, "--state", str(state)])
+
+    assert result == 0
+    assert requests == [("GET", f"/v1/workspaces/{workspace}/kqlDatabases/{database_id}")]
+    assert state.read_text() == original
+    rendered = json.loads((tmp_path / "custom.dashboard.json").read_text())
+    assert rendered["dataSources"][0]["database"] == database_id
+    assert rendered["dataSources"][0]["workspace"] == workspace
+
+
 @pytest.mark.parametrize("suffix", ["001", "002"])
 def test_given_deployment_when_dashboard_exported_then_bindings_are_configured(
     tmp_path, suffix

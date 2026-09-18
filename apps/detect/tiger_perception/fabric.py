@@ -199,6 +199,9 @@ class JsonlFollower:
             fcntl.flock(self._lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             if self.checkpoint.exists():
                 self.state = json.loads(self.checkpoint.read_text(encoding="utf-8"))
+                if isinstance(self.state, dict) and self.state.get("version") != self.expected["version"]:
+                    raise SinkError("Unsupported delivery checkpoint version; reconcile existing state "
+                                    "before retrying (do not delete it).")
                 if (not isinstance(self.state, dict)
                         or any(self.state.get(key) != value for key, value in self.expected.items())
                         or not isinstance(self.state.get("positions"), dict)
@@ -210,6 +213,9 @@ class JsonlFollower:
                             or type(position.get("inode")) is not int
                             or not isinstance(position.get("prefixHash"), str)):
                         raise SinkError("Invalid delivery checkpoint position.")
+        except SinkError:
+            self.__exit__()
+            raise
         except (OSError, ValueError, TypeError):
             self._lock.close()
             self._lock = None

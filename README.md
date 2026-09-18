@@ -5,7 +5,7 @@ description: Run camera-based presence and QR examples locally, then publish eve
 
 ## Overview
 
-Run RTSP presence and QR detection with a local browser viewer. Optionally publish
+Run RTSP presence and QR detection with a local browser viewer and publish
 JSONL events to Fabric Eventstream and Eventhouse for dashboards and twin history.
 
 | Example | Manifest | Event |
@@ -15,8 +15,9 @@ JSONL events to Fabric Eventstream and Eventhouse for dashboards and twin histor
 | Cell A / B chairs | [cell-a.yaml](apps/detect/manifests/cell-a.yaml), [cell-b.yaml](apps/detect/manifests/cell-b.yaml) | `ObjectPresent` |
 | Cell B pallets | [cell-b-pallet.yaml](apps/detect/manifests/cell-b-pallet.yaml) | `PalletPresent` |
 
-Compose runs Jeep and QR; chairs and pallets are alternatives. Pallets require
-trusted custom weights. The bundled YOLO model does not support pallets.
+One Compose file runs Jeep detection, QR detection, the viewer, and both Fabric
+publishers. Chairs and pallets are alternatives. Pallets require trusted custom
+weights. The bundled YOLO model does not support pallets.
 
 ## Run Locally
 
@@ -25,6 +26,12 @@ Privately set `CAMERA_A_RTSP_URL` and `CAMERA_C_RTSP_URL` in gitignored `apps/.e
 Use complete RTSP URLs with camera LAN addresses, not container-local `localhost`.
 Never commit credentials.
 
+Configure the [Fabric destination](#fabric-setup) before starting. Privately place
+the Eventstream Custom App source connection string in
+`apps/secrets/fabric-connection-string`, readable only by the configured user.
+Local Compose secrets are not an encrypted secret store. Both publishers start
+by default and send any existing backlog on their first run.
+
 ```bash
 export LOCAL_UID="$(id -u)"
 export LOCAL_GID="$(id -g)"
@@ -32,7 +39,7 @@ mkdir -p data
 docker compose --env-file apps/.env -f apps/docker-compose.yml up --build -d
 ```
 
-Open <http://127.0.0.1:8765> and select a Scenario. Set `VIEWER_PORT` if occupied.
+Open <http://127.0.0.1:8765> and select a use-case tab. Set `VIEWER_PORT` if occupied.
 Selection does not stop containers. Keep the unauthenticated viewer on loopback.
 
 ```bash
@@ -85,7 +92,8 @@ initialization, but live execution is currently blocked by Fabric's
 `InvalidJobType` rejection of `ExecuteOperations`; see the
 [bootstrap guide](infra/fabric/README.md#optional-job-api).
 Use `--definitions-only` for provisioning without mappings. Keep the checkpoint;
-do not repeat the rejected job type unchanged. Publishers are configured separately.
+do not repeat the rejected job type unchanged. Compose starts the publishers using
+the connection string configured in [Run Locally](#run-locally).
 Digital twin builder requires preview access. Existing deployments need migration below.
 
 For manual setup, create an Eventhouse/KQL database and execute each complete command
@@ -124,23 +132,18 @@ checkpoint. Existing deployments need explicit portal/API migration:
 
 ### Publish Events
 
-Privately place the Custom App source connection string in
-`apps/secrets/fabric-connection-string`. Keep it readable only by the configured user;
-local Compose secrets are not an encrypted secret store. Both Compose files are required:
+Fabric publishing is included in the [single Compose stack](#run-locally).
+No override file or profile is needed. Inspect both publishers with:
 
 ```bash
-docker compose --env-file apps/.env -f apps/docker-compose.yml -f apps/docker-compose.fabric.yml --profile fabric up --build -d
-docker compose --env-file apps/.env -f apps/docker-compose.yml -f apps/docker-compose.fabric.yml --profile fabric logs -f publisher publisher-qr
+docker compose --env-file apps/.env -f apps/docker-compose.yml logs -f publisher publisher-qr
 ```
 
 The two publishers share a destination but use independent `publisher-state` and
 `publisher-qr-state` volumes. First runs send the existing backlog. Failures stop
 publishing after bounded retries; fix the cause and rerun `up` to resume.
 
-```bash
-docker compose --env-file apps/.env -f apps/docker-compose.yml -f apps/docker-compose.fabric.yml --profile fabric down
-```
-
+The same `down` command stops all five services and preserves checkpoint volumes.
 Never use `down -v` for normal restarts. Do not truncate or replace followed files,
 share checkpoints, or reuse delivery state for another destination. Reconcile
 acknowledged events before changing inputs or resetting state.
